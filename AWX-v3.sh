@@ -711,7 +711,7 @@ wait_for_awx() {
     # Aguardar AWX instance ser criada
     local timeout=600
     local elapsed=0
-    while ! kubectl get awx awx-${PERFIL} -n "$AWX_NAMESPACE" &> /dev/null; do
+    while ! kubectl get awx awx-"$PERFIL" -n "$AWX_NAMESPACE" &> /dev/null; do
         if [ $elapsed -ge $timeout ]; then
             log_error "Timeout aguardando criação da instância AWX"
             exit 1
@@ -756,7 +756,7 @@ get_awx_password() {
     # Aguardar secret da senha estar disponível
     local timeout=300
     local elapsed=0
-    while ! kubectl get secret awx-${PERFIL}-admin-password -n "$AWX_NAMESPACE" &> /dev/null; do
+    while ! kubectl get secret awx-"$PERFIL"-admin-password -n "$AWX_NAMESPACE" &> /dev/null; do
         if [ $elapsed -ge $timeout ]; then
             log_error "Timeout aguardando senha do AWX. Verifique os logs:"
             log_error "kubectl logs -n $AWX_NAMESPACE deployment/awx-operator-controller-manager"
@@ -768,7 +768,7 @@ get_awx_password() {
     done
     echo ""
     
-    AWX_PASSWORD=$(kubectl get secret awx-${PERFIL}-admin-password -n "$AWX_NAMESPACE" -o jsonpath='{.data.password}' | base64 --decode)
+    AWX_PASSWORD=$(kubectl get secret awx-"$PERFIL"-admin-password -n "$AWX_NAMESPACE" -o jsonpath='{.data.password}' | base64 --decode)
 }
 
 show_final_info() {
@@ -794,8 +794,8 @@ show_final_info() {
     echo ""
     log_info "🚀 COMANDOS ÚTEIS:"
     log_info "   Ver pods: ${CYAN}kubectl get pods -n $AWX_NAMESPACE${NC}"
-    log_info "   Ver logs web: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-${PERFIL}-web${NC}"
-    log_info "   Ver logs task: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-${PERFIL}-task${NC}"
+    log_info "   Ver logs web: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-web${NC}"
+    log_info "   Ver logs task: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-task${NC}"
     log_info "   Deletar cluster: ${CYAN}kind delete cluster --name $CLUSTER_NAME${NC}"
     echo ""
     
@@ -810,7 +810,7 @@ show_final_info() {
 # ============================
 
 # Valores padrão
-DEFAULT_CLUSTER_NAME="awx-cluster-$PERFIL"
+DEFAULT_CLUSTER_NAME="awx-cluster-"$PERFIL""
 DEFAULT_HOST_PORT=8080
 INSTALL_DEPS_ONLY=false
 VERBOSE=false

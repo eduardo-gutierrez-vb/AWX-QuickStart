@@ -686,7 +686,7 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
   extraPortMappings:
-  - containerPort: ${HOST_PORT}
+  - containerPort: 30000
     hostPort: ${HOST_PORT}
     protocol: TCP
   kubeadmConfigPatches:

@@ -1,34 +1,23 @@
 #!/bin/bash
 set -e
 
-# =======================
-# CONFIGURAÇÃO INICIAL
-# =======================
+# ============================
+# CONFIGURAÇÃO E DETECÇÃO
+# ============================
 
-# (Opcional) Preencha aqui para forçar recursos, ou deixe vazio para auto-detectar:
+# Variáveis de recursos (pode preencher para forçar)
 FORCE_CPU=""     # Exemplo: 4
 FORCE_MEM_MB=""  # Exemplo: 8192
 
-# Nome do cluster e porta AWX
+# Parâmetros do cluster e AWX
 CLUSTER_NAME="awx-cluster"
 AWX_NAMESPACE="awx"
 AWX_NODEPORT=30080
 
-# =======================
-# FUNÇÕES DE LOG
-# =======================
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
-log()    { echo -e "${BLUE}[INFO]${NC} $1"; }
-warn()   { echo -e "${YELLOW}[WARN]${NC} $1"; }
-error()  { echo -e "${RED}[ERRO]${NC} $1"; }
-ok()     { echo -e "${GREEN}[OK]${NC} $1"; }
-
-# =======================
-# DETECÇÃO DE RECURSOS
-# =======================
+# Detecta recursos do sistema
 detect_cores() {
     if [ -n "$FORCE_CPU" ]; then echo "$FORCE_CPU"; return; fi
-    nproc --all 2>/dev/null || grep -c ^processor /proc/cpuinfo
+    nproc --all
 }
 detect_mem_mb() {
     if [ -n "$FORCE_MEM_MB" ]; then echo "$FORCE_MEM_MB"; return; fi
@@ -38,15 +27,13 @@ detect_mem_mb() {
 CORES=$(detect_cores)
 MEM_MB=$(detect_mem_mb)
 
-# =======================
-# CÁLCULO DE PERFIL
-# =======================
+# Define perfil e recursos
 if [ "$CORES" -ge 4 ] && [ "$MEM_MB" -ge 8192 ]; then
     PERFIL="prod"
     NODE_CPU=$((CORES * 80 / 100))
     NODE_MEM_MB=$((MEM_MB * 80 / 100))
-    WEB_REPLICAS=$((CORES / 2)); [ "$WEB_REPLICAS" -lt 2 ] && WEB_REPLICAS=2
-    TASK_REPLICAS=$((CORES / 2)); [ "$TASK_REPLICAS" -lt 2 ] && TASK_REPLICAS=2
+    WEB_REPLICAS=$((CORES / 2))
+    TASK_REPLICAS=$((CORES / 2))
 else
     PERFIL="dev"
     NODE_CPU=$((CORES * 90 / 100))
@@ -55,139 +42,124 @@ else
     TASK_REPLICAS=1
 fi
 
-log "Detectado: $CORES CPUs, $MEM_MB MB RAM. Perfil: $PERFIL"
-log "AWX Web Replicas: $WEB_REPLICAS | Task Replicas: $TASK_REPLICAS"
+echo "Detectado: $CORES CPUs, $MEM_MB MB RAM. Perfil: $PERFIL"
+echo "Recursos alocados: CPU=$NODE_CPU cores, Mem=$NODE_MEM_MB MB"
+echo "Web replicas: $WEB_REPLICAS, Task replicas: $TASK_REPLICAS"
 
-# =======================
-# DEPENDÊNCIAS DE SISTEMA
-# =======================
-log "Instalando dependências do sistema..."
-sudo apt-get update -y
-sudo apt-get install -y python3 python3-pip python3-venv git curl wget lsb-release ca-certificates gnupg2 software-properties-common build-essential
+# ============================
+# INSTALAÇÃO DE DEPENDÊNCIAS
+# ============================
+echo "Atualizando sistema e instalando dependências..."
+sudo apt-get update -qq
+sudo apt-get upgrade -y
+sudo apt-get install -y \
+    python3 python3-pip python3-venv git curl wget \
+    ca-certificates gnupg2 lsb-release build-essential
 
-# =======================
-# DOCKER
-# =======================
+# Instala Docker
 if ! command -v docker &>/dev/null; then
-    log "Instalando Docker..."
+    echo "Instalando Docker..."
     sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
-    sudo apt-get install -y ca-certificates curl gnupg
-    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo mkdir -p /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    echo \
-      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-      $(lsb_release -cs) stable" | \
-      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-    sudo apt-get update -y
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+    sudo apt-get update -qq
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
     sudo usermod -aG docker $USER
-    sudo systemctl enable docker
-    sudo systemctl start docker
-    ok "Docker instalado."
+    echo "Docker instalado."
 else
-    ok "Docker já instalado."
+    echo "Docker já instalado."
 fi
 
-# =======================
-# KIND
-# =======================
+# Instala Kind
 if ! command -v kind &>/dev/null; then
-    log "Instalando Kind..."
+    echo "Instalando Kind..."
     curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
     chmod +x ./kind
-    sudo mv ./kind /usr/local/bin/kind
-    ok "Kind instalado."
+    sudo mv ./kind /usr/local/bin/
+    echo "Kind instalado."
 else
-    ok "Kind já instalado."
+    echo "Kind já instalado."
 fi
 
-# =======================
-# KUBECTL
-# =======================
+# Instala kubectl
 if ! command -v kubectl &>/dev/null; then
-    log "Instalando kubectl..."
+    echo "Instalando kubectl..."
     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     chmod +x kubectl
     sudo mv kubectl /usr/local/bin/
-    ok "kubectl instalado."
+    echo "kubectl instalado."
 else
-    ok "kubectl já instalado."
+    echo "kubectl já instalado."
 fi
 
-# =======================
-# HELM
-# =======================
+# Instala Helm
 if ! command -v helm &>/dev/null; then
-    log "Instalando Helm..."
+    echo "Instalando Helm..."
     curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
     echo "deb [signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
-    sudo apt-get update -y
+    sudo apt-get update -qq
     sudo apt-get install -y helm
-    ok "Helm instalado."
+    echo "Helm instalado."
 else
-    ok "Helm já instalado."
+    echo "Helm já instalado."
 fi
 
-# =======================
-# ANSIBLE & BUILDER
-# =======================
+# Instala ansible e ansible-builder
 if ! command -v ansible &>/dev/null; then
-    log "Instalando Ansible e ansible-builder..."
+    echo "Instalando Ansible e ansible-builder..."
     sudo pip3 install --upgrade pip
     sudo pip3 install ansible ansible-builder
-    ok "Ansible e ansible-builder instalados."
+    echo "Ansible e ansible-builder instalados."
 else
-    ok "Ansible já instalado."
+    echo "Ansible já instalado."
 fi
 
-# =======================
-# REGISTRY LOCAL PARA KIND
-# =======================
+# Instala registry local para Kind
 if ! docker ps | grep -q kind-registry; then
-    log "Subindo registry Docker local para o Kind..."
-    docker run -d --restart=always -p "5001:5000" --name kind-registry registry:2 || true
+    echo "Iniciando registry local..."
+    docker run -d --restart=always -p 5001:5000 --name kind-registry registry:2
     docker network connect kind kind-registry || true
-    ok "Registry local disponível em localhost:5001"
-else
-    ok "Registry local já está rodando."
+    echo "Registry local em localhost:5001"
 fi
 
-# =======================
-# CRIAR CLUSTER KIND
-# =======================
+# ============================
+# CRIAÇÃO DO CLUSTER KIND
+# ============================
 if kind get clusters | grep -q "^$CLUSTER_NAME$"; then
-    warn "Cluster Kind '$CLUSTER_NAME' já existe. Deletando..."
+    echo "Cluster Kind '$CLUSTER_NAME' já existe. Deletando..."
     kind delete cluster --name "$CLUSTER_NAME"
 fi
 
-log "Criando cluster Kind '$CLUSTER_NAME'..."
-cat <<EOF > kind-config.yaml
+echo "Criando cluster Kind..."
+cat <<EOF > /tmp/kind-config.yaml
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
   extraPortMappings:
-  - containerPort: ${AWX_NODEPORT}
-    hostPort: ${AWX_NODEPORT}
+  - containerPort: $AWX_NODEPORT
+    hostPort: $AWX_NODEPORT
     protocol: TCP
 EOF
 
+# Adiciona workers se for produção
 if [ "$PERFIL" = "prod" ]; then
-cat <<EOF >> kind-config.yaml
-- role: worker
+cat <<EOF >> /tmp/kind-config.yaml
 - role: worker
 EOF
 fi
 
-kind create cluster --name "$CLUSTER_NAME" --config kind-config.yaml
-ok "Cluster Kind criado."
+kind create cluster --name "$CLUSTER_NAME" --config /tmp/kind-config.yaml
+echo "Cluster criado."
 
-# =======================
-# EXECUTION ENVIRONMENT CUSTOMIZADO
-# =======================
-log "Preparando Execution Environment customizado..."
+# ============================
+# CRIAÇÃO DO Execution Environment
+# ============================
+echo "Preparando Execution Environment..."
+mkdir -p ~/awx-ee && cd ~/awx-ee
 
-mkdir -p awx-ee && cd awx-ee
+# Arquivo requirements.yml
 cat <<EOF > requirements.yml
 collections:
   - name: community.windows
@@ -196,10 +168,10 @@ collections:
   - name: community.general
 EOF
 
-cat <<EOF > requirements.txt
-pywinrm>=0.4.3
-EOF
+# Arquivo requirements.txt
+echo "pywinrm>=0.4.3" > requirements.txt
 
+# Arquivo execution-environment.yml com patch para repositórios
 cat <<EOF > execution-environment.yml
 version: 1
 build_arg_defaults:
@@ -207,23 +179,29 @@ build_arg_defaults:
 dependencies:
   galaxy: requirements.yml
   python: requirements.txt
+additional_build_steps:
+  prepend_base: |
+    # Corrigir repositórios CentOS 8 EOL
+    RUN sed -i 's|mirrorlist.centos.org|vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo || true
+    RUN sed -i 's|#baseurl=http://vault.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo || true
+    RUN sed -i 's|stream/8|8.5.2111|g' /etc/yum.repos.d/CentOS-*.repo || true
+    # Limpar cache
+    RUN dnf clean all && dnf makecache
 EOF
 
-log "Construindo e publicando a imagem EE para o registry local..."
+# Construção da imagem EE
+echo "Construindo e enviando EE..."
 ansible-builder build -t localhost:5001/awx-custom-ee:latest -f execution-environment.yml
 docker push localhost:5001/awx-custom-ee:latest
-cd ..
+cd ~
 
-ok "Execution Environment customizado pronto."
-
-# =======================
-# AWX OPERATOR E INSTÂNCIA
-# =======================
-log "Instalando AWX Operator via Helm..."
+# ============================
+# INSTALAÇÃO DO AWX
+# ============================
+echo "Instalando o AWX Operator..."
 helm repo add awx-operator https://ansible-community.github.io/awx-operator-helm/ || true
 helm repo update
 
-log "Aplicando manifestos do AWX..."
 cat <<EOF > awx-instance.yaml
 apiVersion: awx.ansible.com/v1beta1
 kind: AWX
@@ -245,17 +223,19 @@ kubectl create namespace $AWX_NAMESPACE || true
 helm upgrade --install awx-operator awx-operator/awx-operator -n $AWX_NAMESPACE --wait
 kubectl apply -f awx-instance.yaml -n $AWX_NAMESPACE
 
-ok "AWX implantado!"
+# ============================
+# FINALIZAÇÃO
+# ============================
+echo "Aguardando instalação do AWX..."
+sleep 10
+kubectl -n $AWX_NAMESPACE get pods
 
-# =======================
-# PÓS-INSTALAÇÃO
-# =======================
-log "Aguardando senha do admin do AWX..."
-until kubectl get secret awx-admin-password -n $AWX_NAMESPACE &>/dev/null; do sleep 5; done
-AWX_PASS=$(kubectl get secret awx-admin-password -n $AWX_NAMESPACE -o jsonpath='{.data.password}' | base64 --decode)
+# Obter senha do admin
+echo "Aguardando senha do admin..."
+until kubectl -n $AWX_NAMESPACE get secret awx-admin-password &>/dev/null; do sleep 5; done
+AWX_PASS=$(kubectl -n $AWX_NAMESPACE get secret awx-admin-password -o jsonpath='{.data.password}' | base64 --decode)
 
-ok "AWX disponível em: http://localhost:${AWX_NODEPORT}"
-log "Usuário: admin"
-log "Senha: $AWX_PASS"
-log "Para ver os pods: kubectl get pods -n $AWX_NAMESPACE"
-log "Para logs: kubectl logs -n $AWX_NAMESPACE deployment/awx-web"
+echo "Instalação concluída!"
+echo "Acesse o AWX em: http://$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[0].address}'):${AWX_NODEPORT}"
+echo "Usuário: admin"
+echo "Senha: $AWX_PASS"

@@ -674,12 +674,12 @@ create_awx_instance() {
     # Calcular recursos para AWX baseado no perfil
     local awx_web_cpu_req="100m"
     local awx_web_mem_req="128Mi"
-    local awx_web_cpu_lim="1000m"
-    local awx_web_mem_lim="2Gi"
+    local awx_web_cpu_lim="500m"
+    local awx_web_mem_lim="1Gi"
     
     local awx_task_cpu_req="100m"
     local awx_task_mem_req="128Mi"
-    local awx_task_cpu_lim="2000m"
+    local awx_task_cpu_lim="1000m"
     local awx_task_mem_lim="2Gi"
     
     if [ "$PERFIL" = "prod" ]; then

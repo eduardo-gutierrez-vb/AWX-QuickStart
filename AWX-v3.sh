@@ -156,7 +156,7 @@ ${WHITE}USO:${NC}
     $0 [OPÇÕES]
 
 ${WHITE}OPÇÕES:${NC}
-    ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: awx-cluster-${profile})
+    ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: awx-cluster-$PROFILE)
     ${GREEN}-p PORTA${NC}     Porta do host para acessar AWX (padrão: 30080)
     ${GREEN}-f CPU${NC}       Forçar número de CPUs (ex: 4)
     ${GREEN}-m MEMORIA${NC}   Forçar quantidade de memória em MB (ex: 8192)
@@ -641,7 +641,7 @@ create_awx_instance() {
 apiVersion: awx.ansible.com/v1beta1
 kind: AWX
 metadata:
-  name: awx-${profile}
+  name: awx-$PROFILE
   namespace: ${AWX_NAMESPACE}
 spec:
   service_type: nodeport
@@ -711,7 +711,7 @@ wait_for_awx() {
     # Aguardar AWX instance ser criada
     local timeout=600
     local elapsed=0
-    while ! kubectl get awx awx-${profile} -n "$AWX_NAMESPACE" &> /dev/null; do
+    while ! kubectl get awx awx-$PROFILE -n "$AWX_NAMESPACE" &> /dev/null; do
         if [ $elapsed -ge $timeout ]; then
             log_error "Timeout aguardando criação da instância AWX"
             exit 1
@@ -756,7 +756,7 @@ get_awx_password() {
     # Aguardar secret da senha estar disponível
     local timeout=300
     local elapsed=0
-    while ! kubectl get secret awx-${profile}-admin-password -n "$AWX_NAMESPACE" &> /dev/null; do
+    while ! kubectl get secret awx-$PROFILE-admin-password -n "$AWX_NAMESPACE" &> /dev/null; do
         if [ $elapsed -ge $timeout ]; then
             log_error "Timeout aguardando senha do AWX. Verifique os logs:"
             log_error "kubectl logs -n $AWX_NAMESPACE deployment/awx-operator-controller-manager"
@@ -768,7 +768,7 @@ get_awx_password() {
     done
     echo ""
     
-    AWX_PASSWORD=$(kubectl get secret awx-${profile}-admin-password -n "$AWX_NAMESPACE" -o jsonpath='{.data.password}' | base64 --decode)
+    AWX_PASSWORD=$(kubectl get secret awx-$PROFILE-admin-password -n "$AWX_NAMESPACE" -o jsonpath='{.data.password}' | base64 --decode)
 }
 
 show_final_info() {
@@ -794,9 +794,9 @@ show_final_info() {
     echo ""
     log_info "🚀 COMANDOS ÚTEIS:"
     log_info "   Ver pods: ${CYAN}kubectl get pods -n $AWX_NAMESPACE${NC}"
-    log_info "   Ver logs web: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-${profile}-web${NC}"
-    log_info "   Ver logs task: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-${profile}-task${NC}"
-    log_info "   Deletar cluster: ${CYAN}kind delete cluster --name $CLUSTER_NAME$PERFIL${NC}"
+    log_info "   Ver logs web: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PROFILE-web${NC}"
+    log_info "   Ver logs task: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PROFILE-task${NC}"
+    log_info "   Deletar cluster: ${CYAN}kind delete cluster --name $CLUSTER_NAME${NC}"
     echo ""
     
     if [ "$VERBOSE" = true ]; then
@@ -810,7 +810,7 @@ show_final_info() {
 # ============================
 
 # Valores padrão
-DEFAULT_CLUSTER_NAME="awx-cluster-${profile}"
+DEFAULT_CLUSTER_NAME="awx-cluster-$PROFILE"
 DEFAULT_HOST_PORT=8080
 INSTALL_DEPS_ONLY=false
 VERBOSE=false
@@ -912,7 +912,7 @@ log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
 
 log_header "INICIANDO IMPLANTAÇÃO AWX"
 log_info "🎯 Configuração:"
-log_info "   Cluster: ${GREEN}$CLUSTER_NAME$PERFIL${NC}"
+log_info "   Cluster: ${GREEN}$CLUSTER_NAME${NC}"
 log_info "   Porta: ${GREEN}$HOST_PORT${NC}"
 log_info "   Namespace: ${GREEN}$AWX_NAMESPACE${NC}"
 log_info "   Verbose: ${GREEN}$VERBOSE${NC}"

@@ -1413,7 +1413,6 @@ while getopts "c:p:f:m:dvsih" opt; do
             VERBOSE=true
             ;;
         s)
-            SILENT=true
             INTERACTIVE=false
             AUTO_MODE=true
             ;;

@@ -178,28 +178,6 @@ validate_environment() {
     fi
 }
 
-check_port_availability() {
-    local port=$1
-    log_subheader "VERIFICANDO PORTA $port"
-    
-    # Verificar processos locais
-    local pid=$(lsof -t -i :$port 2>/dev/null || true)
-    if [ -n "$pid" ]; then
-        log_error "Conflito de porta detectado:"
-        lsof -i :$port
-        log_info "Execute para liberar: kill -9 $pid"
-        exit 1
-    fi
-    
-    # Verificar containers Docker
-    local container=$(docker ps --format '{{.Names}}' | grep ".*${port}->${port}/tcp" || true)
-    if [ -n "$container" ]; then
-        log_error "Container Docker usando a porta:"
-        docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep "$port"
-        log_info "Execute para liberar: docker rm -f $container"
-        exit 1
-    fi
-}
 
 # ============================
 # DETECÇÃO DE RECURSOS

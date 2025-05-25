@@ -796,7 +796,7 @@ show_final_info() {
     log_info "   Ver pods: ${CYAN}kubectl get pods -n $AWX_NAMESPACE${NC}"
     log_info "   Ver logs web: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-${profile}-web${NC}"
     log_info "   Ver logs task: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-${profile}-task${NC}"
-    log_info "   Deletar cluster: ${CYAN}kind delete cluster --name $CLUSTER_NAME${NC}"
+    log_info "   Deletar cluster: ${CYAN}kind delete cluster --name $CLUSTER_NAME$PERFIL${NC}"
     echo ""
     
     if [ "$VERBOSE" = true ]; then
@@ -912,7 +912,7 @@ log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
 
 log_header "INICIANDO IMPLANTAÇÃO AWX"
 log_info "🎯 Configuração:"
-log_info "   Cluster: ${GREEN}$CLUSTER_NAME${NC}"
+log_info "   Cluster: ${GREEN}$CLUSTER_NAME$PERFIL${NC}"
 log_info "   Porta: ${GREEN}$HOST_PORT${NC}"
 log_info "   Namespace: ${GREEN}$AWX_NAMESPACE${NC}"
 log_info "   Verbose: ${GREEN}$VERBOSE${NC}"

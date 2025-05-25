@@ -440,7 +440,7 @@ show_help() {
 ${CYAN}=== Script de Implantação AWX com Kind ===${NC}
 
 ${WHITE}USO:${NC}
-    $0 [OPÇÕES]...
+    $0 [OPÇÕES]
 
 ${WHITE}OPÇÕES:${NC}
     ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: será calculado baseado no perfil)
@@ -808,39 +808,78 @@ EOF
 }
 
 # ============================
-# CRIAÇÃO DE ARQUIVOS EE CORRIGIDOS
+# VALIDAÇÃO E ARQUIVOS EE CORRIGIDOS - BASEADO NAS MELHORES PRÁTICAS
 # ============================
 
-create_optimized_ee_files() {
-    log_info "Criando arquivos de configuração EE corrigidos..."
+validate_ee_definition() {
+    log_info "Validando definição do EE..."
     
-    # Arquivo requirements.yml para coleções - SEM SAP por enquanto
+    # Verificar arquivos necessários
+    local required_files=("execution-environment.yml" "requirements.yml" "requirements.txt" "bindep.txt")
+    
+    for file in "${required_files[@]}"; do
+        if [ ! -f "$file" ]; then
+            log_error "Arquivo necessário não encontrado: $file"
+            return 1
+        fi
+    done
+    
+    # Validar YAML
+    if ! python -c "import yaml; yaml.safe_load(open('execution-environment.yml'))" 2>/dev/null; then
+        log_error "Erro de sintaxe em execution-environment.yml"
+        return 1
+    fi
+    
+    log_success "Validação da definição EE concluída"
+    return 0
+}
+
+create_production_ready_ee_files() {
+    log_info "Criando arquivos de configuração para produção..."
+    
+    # execution-environment.yml otimizado - CORREÇÃO BASEADA NAS MELHORES PRÁTICAS
+    cat > execution-environment.yml << 'EOF'
+---
+version: 3
+images:
+  base_image:
+    name: quay.io/centos/centos:stream9
+dependencies:
+  galaxy: requirements.yml
+  python: requirements.txt
+  system: bindep.txt
+  ansible_core:
+    package_pip: ansible-core>=2.15.0,<2.17.0
+  ansible_runner:
+    package_pip: ansible-runner>=2.3.0,<2.5.0
+additional_build_steps:
+  prepend_base:
+    - RUN dnf clean all && dnf makecache --refresh
+    - RUN dnf update -y --nodocs --setopt=install_weak_deps=False
+    - RUN dnf install -y git curl wget rsync openssh-clients
+  prepend_galaxy:
+    - RUN git config --global --add safe.directory '*'
+    - RUN mkdir -p /tmp/ansible-collections
+  append_final:
+    - RUN rm -rf /tmp/* /var/tmp/* /root/.cache /root/.ansible
+    - RUN python -m pip check
+    - RUN ansible-galaxy collection list
+EOF
+
+    # requirements.yml com versões específicas - CORREÇÃO
     cat > requirements.yml << 'EOF'
 ---
 collections:
-  # Windows e Active Directory
+  - name: community.general
+    version: ">=8.0.0"
   - name: community.windows
     version: ">=2.2.0"
   - name: ansible.windows
     version: ">=2.3.0"
-  - name: microsoft.ad
-    version: ">=1.5.0"
-  
-  # Geral
-  - name: community.general
-    version: ">=8.0.0"
-  - name: community.crypto
-    version: ">=2.15.0"
   - name: kubernetes.core
     version: ">=3.0.0"
-  
-  # Redes e infraestrutura
-  - name: cisco.ios
-    version: ">=5.0.0"
-  - name: community.network
-    version: ">=5.0.0"
-  
-  # Cloud providers
+  - name: community.crypto
+    version: ">=2.15.0"
   - name: amazon.aws
     version: ">=7.0.0"
   - name: azure.azcollection
@@ -849,288 +888,193 @@ collections:
     version: ">=1.3.0"
 EOF
 
-    # Arquivo requirements.txt CORRIGIDO - removendo dependências problemáticas
+    # requirements.txt com dependências Python compatíveis - CORREÇÃO
     cat > requirements.txt << 'EOF'
-# Core - versões compatíveis com AWX
-ansible-core>=2.15.0,<2.16.0
-ansible-runner>=2.3.0,<2.4.0
+# Core Ansible - versões compatíveis
+ansible-core>=2.15.0,<2.17.0
+ansible-runner>=2.3.0,<2.5.0
 
-# Networking
+# Dependências de rede e criptografia
 netaddr>=0.10.1
-jinja2>=3.1.2
-
-# Cloud
-boto3>=1.26.0
-azure-identity>=1.15.0
-google-cloud-compute>=1.15.0
-
-# Dependências básicas
 cryptography>=41.0.0
 requests>=2.31.0
 urllib3>=2.0.0,<3.0.0
-pyyaml>=6.0.1
+
+# Cloud providers
+boto3>=1.26.0
+botocore>=1.29.0
+azure-identity>=1.15.0
+google-cloud-compute>=1.15.0
+
+# Kubernetes e containers
 kubernetes>=28.1.0
+pyyaml>=6.0.1
+
+# Ferramentas de sistema
 psutil>=5.9.0
 paramiko>=2.12.0
-
-# Windows/AD - só se não for Linux puro
-pywinrm>=0.4.3; sys_platform == "win32"
+jinja2>=3.1.2
 EOF
 
-    # Arquivo bindep.txt CORRIGIDO - removendo dependências SAP problemáticas
+    # bindep.txt com dependências de sistema - CORREÇÃO
     cat > bindep.txt << 'EOF'
-# Compilação básica
+# Dependências de compilação
 gcc [platform:rpm compile]
-python3-devel [platform:rpm]
-openssl-devel [platform:rpm]
+python3-devel [platform:rpm compile]
+openssl-devel [platform:rpm compile]
 
-# Windows/Kerberos
+# Kerberos e autenticação
 krb5-devel [platform:rpm]
 libffi-devel [platform:rpm]
 
-# Rede e conectividade
+# Ferramentas de rede
 curl
 wget
 rsync
 openssh-clients [platform:rpm]
 
-# Git para collections
+# Git para coleções
 git
-EOF
 
-    # Arquivo execution-environment.yml CORRIGIDO
-    cat > execution-environment.yml << 'EOF'
----
-version: 3
-images:
-  base_image:
-    name: quay.io/ansible/awx-ee:latest
-dependencies:
-  galaxy: requirements.yml
-  python: requirements.txt
-  system: bindep.txt
-  ansible_core:
-    package_pip: ansible-core>=2.15.0,<2.16.0
-  ansible_runner:
-    package_pip: ansible-runner>=2.3.0,<2.4.0
-additional_build_steps:
-  prepend_base:
-    - RUN dnf clean all && dnf makecache
-    - RUN dnf update -y --security --nobest || dnf update -y --nobest || true
-  prepend_galaxy:
-    - RUN git config --global --add safe.directory '*'
-    - RUN mkdir -p /tmp/ansible-collections
-  prepend_final:
-    - RUN python -m pip install --upgrade pip setuptools wheel
-    - RUN python -m pip check || true
-  append_final:
-    - RUN ansible-galaxy collection list | head -20 || true
-    - RUN pip list | grep -E "(ansible|requests|kubernetes)" || true
-    - RUN python -c "import ansible; print(f'Ansible {ansible.__version__} OK')" || echo "Ansible check failed"
-    - RUN python -c "import ansible_runner; print(f'Ansible Runner {ansible_runner.__version__} OK')" || echo "Runner check failed"
-    - RUN python -c "import requests; print('Requests OK')" || echo "Requests check failed"
-    - RUN python -c "import kubernetes; print('Kubernetes OK')" || echo "K8s check failed"
-    - RUN rm -rf /tmp/* /var/tmp/* /root/.cache /root/.ansible || true
-EOF
-
-    # Criar arquivo sap_simulator.py para fallback SAP
-    cat > sap_simulator.py << 'EOF'
-"""
-Simulador SAP para desenvolvimento e testes quando SAP NW RFC SDK não está disponível
-"""
-
-class SAPSimulator:
-    @staticmethod
-    def call_rfc(function, params=None):
-        """Simula chamada RFC SAP"""
-        return {
-            'status': 'simulated',
-            'function': function,
-            'params': params or {},
-            'response': f"Simulated RFC call to {function}",
-            'success': True
-        }
-    
-    @staticmethod
-    def get_connection_info():
-        """Simula informações de conexão SAP"""
-        return {
-            'host': 'simulator',
-            'client': '000',
-            'user': 'SIMULATOR',
-            'status': 'connected'
-        }
-
-# Wrapper para compatibilidade com pyrfc
-try:
-    from pyrfc import Connection
-    SAP_AVAILABLE = True
-except ImportError:
-    SAP_AVAILABLE = False
-    
-    class Connection:
-        def __init__(self, **kwargs):
-            self.simulator = SAPSimulator()
-            self.connection_params = kwargs
-        
-        def call(self, function, **params):
-            return self.simulator.call_rfc(function, params)
-        
-        def close(self):
-            pass
-        
-        def __enter__(self):
-            return self
-        
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            self.close()
-
-if __name__ == "__main__":
-    print(f"SAP RFC Simulator - SAP_AVAILABLE: {SAP_AVAILABLE}")
+# Dependências adicionais para collections
+libxml2-devel [platform:rpm compile]
+libxslt-devel [platform:rpm compile]
 EOF
 }
 
-# ============================
-# FUNÇÃO DE TESTE DO EE CORRIGIDA
-# ============================
+push_to_local_registry() {
+    local runtime=$1
+    
+    log_info "Enviando imagem para registry local..."
+    
+    # Verificar se registry está disponível
+    if ! curl -s http://localhost:${REGISTRY_PORT}/v2/ > /dev/null; then
+        log_error "Registry local não está disponível em localhost:${REGISTRY_PORT}"
+        return 1
+    fi
+    
+    # Push da imagem
+    if $runtime push localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest; then
+        log_success "Imagem enviada com sucesso para registry local"
+        
+        # Verificar disponibilidade
+        sleep 5
+        if curl -s http://localhost:${REGISTRY_PORT}/v2/_catalog | grep -q awx-enterprise-ee; then
+            log_success "Imagem verificada no registry: awx-enterprise-ee"
+        else
+            log_warning "Imagem não encontrada no catálogo do registry"
+        fi
+    else
+        log_error "Falha ao enviar imagem para registry"
+        return 1
+    fi
+}
 
 test_execution_environment() {
     log_info "Testando Execution Environment..."
     
-    # Testar se a imagem foi criada
-    if ! docker images | grep -q "localhost:${REGISTRY_PORT}/awx-enterprise-ee"; then
-        log_warning "Imagem EE não encontrada localmente"
+    local test_container="awx-ee-test-$(date +%s)"
+    
+    # Executar container de teste
+    if docker run --name "$test_container" \
+        localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
+        ansible --version; then
+        
+        log_success "Teste de Ansible executado com sucesso"
+        
+        # Testar coleções instaladas
+        docker run --rm \
+            localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
+            ansible-galaxy collection list
+        
+        # Limpar container de teste
+        docker rm -f "$test_container" 2>/dev/null || true
+        
+        return 0
+    else
+        log_error "Falha no teste do EE"
+        docker rm -f "$test_container" 2>/dev/null || true
         return 1
     fi
-    
-    # Testar dependências críticas básicas com timeout
-    log_info "Testando dependências básicas..."
-    timeout 60 docker run --rm localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
-        python -c "
-import sys
-import subprocess
-try:
-    import requests, yaml
-    import ansible
-    print('✅ Dependências básicas OK')
-    print(f'Ansible version: {ansible.__version__}')
-    
-    # Testar collections básicas com timeout interno
-    try:
-        result = subprocess.run(['timeout', '30', 'ansible-galaxy', 'collection', 'list'], 
-                              capture_output=True, text=True, timeout=35)
-        if result.returncode == 0 and 'community.general' in result.stdout:
-            print('✅ Collections básicas OK')
-        else:
-            print('⚠️ Collections podem não estar instaladas')
-    except subprocess.TimeoutExpired:
-        print('⚠️ Timeout ao verificar collections')
-        
-except ImportError as e:
-    print(f'❌ Erro nas dependências: {e}')
-    sys.exit(1)
-except Exception as e:
-    print(f'⚠️ Erro no teste: {e}')
-" 2>/dev/null || log_warning "Timeout ou erro ao testar dependências básicas"
-    
-    log_success "Teste do EE concluído"
 }
 
 # ============================
-# CRIAÇÃO DO EXECUTION ENVIRONMENT CORRIGIDA
+# CRIAÇÃO DO EXECUTION ENVIRONMENT CORRIGIDA - BASEADA NAS MELHORES PRÁTICAS
 # ============================
 
 create_execution_environment() {
     log_header "CRIAÇÃO DO EXECUTION ENVIRONMENT"
     
-    # Ativar ambiente virtual
-    source "$HOME/ansible-ee-venv/bin/activate"
+    # Verificar pré-requisitos
+    if ! command -v ansible-builder &> /dev/null; then
+        log_error "ansible-builder não encontrado. Instalando..."
+        pip install ansible-builder
+    fi
     
-    log_info "Preparando Execution Environment corrigido..."
+    # Ativar ambiente virtual se existir
+    if [ -d "$HOME/ansible-ee-venv" ]; then
+        source "$HOME/ansible-ee-venv/bin/activate"
+    fi
     
-    # Criar diretório temporário
-    EE_DIR="/tmp/awx-ee-$(date +%s)"
+    log_info "Preparando Execution Environment..."
+    
+    # Criar diretório de trabalho
+    EE_DIR="/tmp/awx-ee-build-$(date +%s)"
     mkdir -p "$EE_DIR"
     cd "$EE_DIR"
     
-    # Criar arquivos de configuração corrigidos
-    create_optimized_ee_files
+    # Criar arquivos de configuração otimizados
+    create_production_ready_ee_files
     
-    # Configurar build args baseado no ambiente
-    local build_args=""
-    if [ "$VERBOSE" = true ]; then
-        build_args="--verbosity 3"
-    else
-        build_args="--verbosity 3"
-    fi
-    
-    # Configurar timeout maior e retry melhorado
-    local max_retries=3
-    local retry_count=0
-    local build_timeout=600  # 10 minutos
-    
-    log_warning "Construindo EE - processo pode levar até 10 minutos..."
-    
-    while [ $retry_count -lt $max_retries ]; do
-        log_info "Tentativa de build $(($retry_count + 1))/$max_retries"
-        
-        # Comando corrigido removendo argumento não suportado
-        if timeout $build_timeout ansible-builder build \
-            -t localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
-            -f execution-environment.yml \
-            $build_args 2>&1 | tee /tmp/build-log-$(date +%s).txt; then
-            
-            log_success "Build do EE concluído com sucesso!"
-            break
-        else
-            retry_count=$(($retry_count + 1))
-            if [ $retry_count -lt $max_retries ]; then
-                log_warning "Build falhou, limpando cache e tentando novamente em 60 segundos..."
-                docker system prune -f
-                sleep 60
-            else
-                log_error "Build do EE falhou após $max_retries tentativas"
-                log_error "Logs de debug disponíveis em /tmp/build-log-*.txt"
-                cd /
-                rm -rf "$EE_DIR"
-                return 1
-            fi
-        fi
-    done
-    
-    # Testar a imagem antes de enviar
-    test_execution_environment
-    
-    log_info "Enviando imagem para registry local..."
-    if ! docker push localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest; then
-        log_error "Falha ao enviar imagem para registry"
+    # Validar arquivos
+    if ! validate_ee_definition; then
+        log_error "Validação da definição EE falhou"
         cd /
         rm -rf "$EE_DIR"
         return 1
     fi
     
-    # Verificar disponibilidade no registry com retry
-    local registry_check_retries=5
-    local registry_retry=0
+    # Configurar parâmetros de build
+    local container_runtime="docker"
+    if command -v podman &> /dev/null; then
+        container_runtime="podman"
+    fi
     
-    while [ $registry_retry -lt $registry_check_retries ]; do
-        sleep 5
-        if curl -s http://localhost:${REGISTRY_PORT}/v2/_catalog 2>/dev/null | grep -q awx-enterprise-ee; then
-            log_success "Imagem disponível no registry local"
-            break
-        else
-            registry_retry=$(($registry_retry + 1))
-            if [ $registry_retry -eq $registry_check_retries ]; then
-                log_warning "Verificação do registry falhou, mas continuando..."
-            fi
-        fi
-    done
+    log_info "Usando container runtime: $container_runtime"
+    
+    # Executar build com configurações corrigidas - CORREÇÃO DA FLAG VERBOSITY
+    local build_command="ansible-builder build \
+        --tag localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
+        --file execution-environment.yml \
+        --container-runtime $container_runtime \
+        -v 2"
+    
+    log_info "Executando: $build_command"
+    
+    if eval "$build_command"; then
+        log_success "Build do EE concluído com sucesso!"
+        
+        # Verificar imagem criada
+        $container_runtime images | grep awx-enterprise-ee
+        
+        # Testar a imagem
+        test_execution_environment
+        
+        # Enviar para registry local
+        push_to_local_registry "$container_runtime"
+        
+    else
+        log_error "Falha no build do EE"
+        log_error "Verificando logs de erro..."
+        cd /
+        rm -rf "$EE_DIR"
+        return 1
+    fi
     
     # Limpar diretório temporário
     cd /
     rm -rf "$EE_DIR"
     
-    log_success "Execution Environment criado e enviado com sucesso!"
     return 0
 }
 

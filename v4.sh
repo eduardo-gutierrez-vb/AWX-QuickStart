@@ -670,11 +670,11 @@ start_local_registry() {
 
 create_kind_cluster() {
     log_header "CRIAÇÃO DO CLUSTER KIND"
-    validate_environment
     # Verificar cluster existente
     if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
         log_warning "Cluster '$CLUSTER_NAME' já existe. Deletando..."
         kind delete cluster --name "$CLUSTER_NAME"
+        validate_environment
     fi
     
     log_info "Criando cluster Kind '$CLUSTER_NAME'..."

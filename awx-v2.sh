@@ -55,6 +55,18 @@ sudo apt-get upgrade -y
 sudo apt-get install -y \
     python3 python3-pip python3-venv git curl wget \
     ca-certificates gnupg2 lsb-release build-essential
+sudo apt update
+sudo apt install -y software-properties-common
+sudo add-apt-repository ppa:deadsnakes/ppa -y
+sudo apt update
+sudo apt install -y python3.9 python3.9-venv python3.9-distutils python3.9-dev
+curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+sudo python3.9 get-pip.py
+python3.9 -m venv ~/ansible-ee-venv
+source ~/ansible-ee-venv/bin/activate
+pip install --upgrade pip
+pip install "ansible-builder>=3.0.0"
+
 
 # Instala Docker
 if ! command -v docker &>/dev/null; then
@@ -174,8 +186,8 @@ echo "pywinrm>=0.4.3" > requirements.txt
 # Arquivo execution-environment.yml com patch para repositórios
 cat <<EOF > execution-environment.yml
 version: 3
-build_arg_defaults:
-  EE_BASE_IMAGE: 'quay.io/ansible/awx-ee:24.6.1'
+base_image:
+  name: quay.io/ansible/awx-ee:24.6.1
 dependencies:
   galaxy: requirements.yml
   python: requirements.txt

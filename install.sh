@@ -440,9 +440,7 @@ show_help() {
 ${CYAN}=== Script de Implantação AWX com Kind ===${NC}
 
 ${WHITE}USO:${NC}
-    $0 [OPÇÕES]...
-
-${WHITE}OPÇÕES:${NC}
+    $0 [OPÇÕES]... ${WHITE}OPÇÕES:${NC}
     ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: será calculado baseado no perfil)
     ${GREEN}-p PORTA${NC}     Porta do host para acessar AWX (padrão: 8080)
     ${GREEN}-f CPU${NC}       Forçar número de CPUs (ex: 4)
@@ -808,13 +806,13 @@ EOF
 }
 
 # ============================
-# CRIAÇÃO DE ARQUIVOS EE CORRIGIDOS
+# CRIAÇÃO DE ARQUIVOS EE OTIMIZADOS
 # ============================
 
 create_optimized_ee_files() {
-    log_info "Criando arquivos de configuração EE corrigidos..."
+    log_info "Criando arquivos de configuração EE otimizados..."
     
-    # Arquivo requirements.yml para coleções - SEM SAP por enquanto
+    # Arquivo requirements.yml para coleções enterprise
     cat > requirements.yml << 'EOF'
 ---
 collections:
@@ -825,6 +823,10 @@ collections:
     version: ">=2.3.0"
   - name: microsoft.ad
     version: ">=1.5.0"
+  
+  # SAP - usando community.sap_libs ao invés de pyrfc direto
+  - name: community.sap_libs
+    version: ">=1.4.0"
   
   # Geral
   - name: community.general
@@ -849,11 +851,16 @@ collections:
     version: ">=1.3.0"
 EOF
 
-    # Arquivo requirements.txt CORRIGIDO - removendo dependências problemáticas
+    # Arquivo requirements.txt para pacotes Python otimizados - CORRIGIDO
     cat > requirements.txt << 'EOF'
-# Core - versões compatíveis com AWX
-ansible-core>=2.15.0,<2.16.0
-ansible-runner>=2.3.0,<2.4.0
+# Windows/AD - versões compatíveis
+pywinrm>=0.4.3
+requests-kerberos>=0.14.0
+requests-ntlm>=1.2.0
+pykerberos>=1.2.4; sys_platform != "win32"
+
+# SAP - usando versão estável conforme documentação
+pyrfc==2.8.3;
 
 # Networking
 netaddr>=0.10.1
@@ -864,20 +871,21 @@ boto3>=1.26.0
 azure-identity>=1.15.0
 google-cloud-compute>=1.15.0
 
-# Dependências básicas
+# Core - versões compatíveis com AWX
+ansible-core>=2.15.0,<2.16.0
+ansible-runner>=2.3.0,<2.4.0
 cryptography>=41.0.0
 requests>=2.31.0
 urllib3>=2.0.0,<3.0.0
 pyyaml>=6.0.1
 kubernetes>=28.1.0
+
+# Dependências adicionais
 psutil>=5.9.0
 paramiko>=2.12.0
-
-# Windows/AD - só se não for Linux puro
-pywinrm>=0.4.3; sys_platform == "win32"
 EOF
 
-    # Arquivo bindep.txt CORRIGIDO - removendo dependências SAP problemáticas
+    # Arquivo bindep.txt para dependências do sistema - CORRIGIDO
     cat > bindep.txt << 'EOF'
 # Compilação básica
 gcc [platform:rpm compile]
@@ -887,6 +895,11 @@ openssl-devel [platform:rpm]
 # Windows/Kerberos
 krb5-devel [platform:rpm]
 libffi-devel [platform:rpm]
+
+# SAP específico - dependências do sistema necessárias para pyrfc
+libaio [platform:rpm]
+libnsl [platform:rpm]
+libuuid-devel [platform:rpm]
 
 # Rede e conectividade
 curl
@@ -898,7 +911,7 @@ openssh-clients [platform:rpm]
 git
 EOF
 
-    # Arquivo execution-environment.yml CORRIGIDO
+    # Arquivo execution-environment.yml otimizado - CORRIGIDO
     cat > execution-environment.yml << 'EOF'
 ---
 version: 3
@@ -916,7 +929,7 @@ dependencies:
 additional_build_steps:
   prepend_base:
     - RUN dnf clean all && dnf makecache
-    - RUN dnf update -y --security --nobest || dnf update -y --nobest || true
+    - RUN dnf update -y --security
   prepend_galaxy:
     - RUN git config --global --add safe.directory '*'
     - RUN mkdir -p /tmp/ansible-collections
@@ -924,74 +937,18 @@ additional_build_steps:
     - RUN python -m pip install --upgrade pip setuptools wheel
     - RUN python -m pip check || true
   append_final:
-    - RUN ansible-galaxy collection list | head -20 || true
+    - RUN ansible-galaxy collection list | head -20
     - RUN pip list | grep -E "(ansible|requests|kubernetes)" || true
     - RUN python -c "import ansible; print(f'Ansible {ansible.__version__} OK')" || echo "Ansible check failed"
     - RUN python -c "import ansible_runner; print(f'Ansible Runner {ansible_runner.__version__} OK')" || echo "Runner check failed"
     - RUN python -c "import requests; print('Requests OK')" || echo "Requests check failed"
     - RUN python -c "import kubernetes; print('Kubernetes OK')" || echo "K8s check failed"
-    - RUN rm -rf /tmp/* /var/tmp/* /root/.cache /root/.ansible || true
-EOF
-
-    # Criar arquivo sap_simulator.py para fallback SAP
-    cat > sap_simulator.py << 'EOF'
-"""
-Simulador SAP para desenvolvimento e testes quando SAP NW RFC SDK não está disponível
-"""
-
-class SAPSimulator:
-    @staticmethod
-    def call_rfc(function, params=None):
-        """Simula chamada RFC SAP"""
-        return {
-            'status': 'simulated',
-            'function': function,
-            'params': params or {},
-            'response': f"Simulated RFC call to {function}",
-            'success': True
-        }
-    
-    @staticmethod
-    def get_connection_info():
-        """Simula informações de conexão SAP"""
-        return {
-            'host': 'simulator',
-            'client': '000',
-            'user': 'SIMULATOR',
-            'status': 'connected'
-        }
-
-# Wrapper para compatibilidade com pyrfc
-try:
-    from pyrfc import Connection
-    SAP_AVAILABLE = True
-except ImportError:
-    SAP_AVAILABLE = False
-    
-    class Connection:
-        def __init__(self, **kwargs):
-            self.simulator = SAPSimulator()
-            self.connection_params = kwargs
-        
-        def call(self, function, **params):
-            return self.simulator.call_rfc(function, params)
-        
-        def close(self):
-            pass
-        
-        def __enter__(self):
-            return self
-        
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            self.close()
-
-if __name__ == "__main__":
-    print(f"SAP RFC Simulator - SAP_AVAILABLE: {SAP_AVAILABLE}")
+    - RUN rm -rf /tmp/* /var/tmp/* /root/.cache /root/.ansible
 EOF
 }
 
 # ============================
-# FUNÇÃO DE TESTE DO EE CORRIGIDA
+# FUNÇÃO DE TESTE DO EE
 # ============================
 
 test_execution_environment() {
@@ -1003,9 +960,9 @@ test_execution_environment() {
         return 1
     fi
     
-    # Testar dependências críticas básicas com timeout
+    # Testar dependências críticas básicas
     log_info "Testando dependências básicas..."
-    timeout 60 docker run --rm localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
+    docker run --rm localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
         python -c "
 import sys
 import subprocess
@@ -1015,29 +972,26 @@ try:
     print('✅ Dependências básicas OK')
     print(f'Ansible version: {ansible.__version__}')
     
-    # Testar collections básicas com timeout interno
-    try:
-        result = subprocess.run(['timeout', '30', 'ansible-galaxy', 'collection', 'list'], 
-                              capture_output=True, text=True, timeout=35)
-        if result.returncode == 0 and 'community.general' in result.stdout:
-            print('✅ Collections básicas OK')
-        else:
-            print('⚠️ Collections podem não estar instaladas')
-    except subprocess.TimeoutExpired:
-        print('⚠️ Timeout ao verificar collections')
+    # Testar collections básicas
+    result = subprocess.run(['ansible-galaxy', 'collection', 'list'], 
+                          capture_output=True, text=True)
+    if 'community.general' in result.stdout:
+        print('✅ Collections básicas OK')
+    else:
+        print('⚠️ Collections podem não estar instaladas')
         
 except ImportError as e:
     print(f'❌ Erro nas dependências: {e}')
     sys.exit(1)
 except Exception as e:
     print(f'⚠️ Erro no teste: {e}')
-" 2>/dev/null || log_warning "Timeout ou erro ao testar dependências básicas"
+" 2>/dev/null || log_warning "Erro ao testar dependências básicas"
     
     log_success "Teste do EE concluído"
 }
 
 # ============================
-# CRIAÇÃO DO EXECUTION ENVIRONMENT CORRIGIDA
+# CRIAÇÃO DO EXECUTION ENVIRONMENT
 # ============================
 
 create_execution_environment() {
@@ -1046,15 +1000,19 @@ create_execution_environment() {
     # Ativar ambiente virtual
     source "$HOME/ansible-ee-venv/bin/activate"
     
-    log_info "Preparando Execution Environment corrigido..."
+    log_info "Preparando Execution Environment personalizado..."
     
     # Criar diretório temporário
     EE_DIR="/tmp/awx-ee-$(date +%s)"
     mkdir -p "$EE_DIR"
     cd "$EE_DIR"
     
-    # Criar arquivos de configuração corrigidos
+    # Criar arquivos de configuração otimizados
     create_optimized_ee_files
+    
+    # Construir e enviar imagem
+    log_info "Construindo Execution Environment personalizado..."
+    log_warning "Este processo pode levar vários minutos..."
     
     # Configurar build args baseado no ambiente
     local build_args=""
@@ -1064,38 +1022,26 @@ create_execution_environment() {
         build_args="--verbosity 1"
     fi
     
-    # Configurar timeout maior e retry melhorado
-    local max_retries=3
+    # Tentar build com retry em caso de falha
+    local max_retries=2
     local retry_count=0
-    local build_timeout=1800  # 30 minutos
-    
-    log_warning "Construindo EE - processo pode levar até 30 minutos..."
     
     while [ $retry_count -lt $max_retries ]; do
         log_info "Tentativa de build $(($retry_count + 1))/$max_retries"
         
-        # Build com timeout
-        if timeout $build_timeout ansible-builder build \
-            -t localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
-            -f execution-environment.yml \
-            $build_args \
-            --build-outputs-dir /tmp/build-outputs \
-            2>&1 | tee /tmp/build-log-$(date +%s).txt; then
-            
+        if ansible-builder build -t localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest -f execution-environment.yml $build_args; then
             log_success "Build do EE concluído com sucesso!"
             break
         else
             retry_count=$(($retry_count + 1))
             if [ $retry_count -lt $max_retries ]; then
-                log_warning "Build falhou, limpando cache e tentando novamente em 60 segundos..."
-                docker system prune -f
-                sleep 60
+                log_warning "Build falhou, tentando novamente em 30 segundos..."
+                sleep 30
             else
                 log_error "Build do EE falhou após $max_retries tentativas"
-                log_error "Logs de debug disponíveis em /tmp/build-log-*.txt"
                 cd /
                 rm -rf "$EE_DIR"
-                return 1
+                exit 1
             fi
         fi
     done
@@ -1108,32 +1054,22 @@ create_execution_environment() {
         log_error "Falha ao enviar imagem para registry"
         cd /
         rm -rf "$EE_DIR"
-        return 1
+        exit 1
     fi
     
-    # Verificar disponibilidade no registry com retry
-    local registry_check_retries=5
-    local registry_retry=0
-    
-    while [ $registry_retry -lt $registry_check_retries ]; do
-        sleep 5
-        if curl -s http://localhost:${REGISTRY_PORT}/v2/_catalog 2>/dev/null | grep -q awx-enterprise-ee; then
-            log_success "Imagem disponível no registry local"
-            break
-        else
-            registry_retry=$(($registry_retry + 1))
-            if [ $registry_retry -eq $registry_check_retries ]; then
-                log_warning "Verificação do registry falhou, mas continuando..."
-            fi
-        fi
-    done
+    # Verificar disponibilidade no registry
+    sleep 5
+    if curl -s http://localhost:${REGISTRY_PORT}/v2/_catalog 2>/dev/null | grep -q awx-enterprise-ee; then
+        log_success "Imagem disponível no registry local"
+    else
+        log_warning "Verificação do registry falhou, mas continuando..."
+    fi
     
     # Limpar diretório temporário
     cd /
     rm -rf "$EE_DIR"
     
     log_success "Execution Environment criado e enviado com sucesso!"
-    return 0
 }
 
 # ============================
@@ -1490,19 +1426,7 @@ fi
 
 # Continuar com a instalação completa
 create_kind_cluster
-
-# Criar EE com tratamento de erro melhorado
-if ! create_execution_environment; then
-    log_error "Falha na criação do Execution Environment"
-    log_warning "Tentando usar EE padrão do AWX..."
-    
-    # Fallback: usar EE padrão
-    log_info "Usando Execution Environment padrão"
-    export EE_IMAGE="quay.io/ansible/awx-ee:latest"
-else
-    export EE_IMAGE="localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest"
-fi
-
+create_execution_environment
 install_awx
 wait_for_awx
 get_awx_password

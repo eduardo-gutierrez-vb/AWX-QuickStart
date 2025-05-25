@@ -756,51 +756,38 @@ EOF
 wait_for_awx() {
     log_header "AGUARDANDO INSTALAÇÃO DO AWX"
     
-    log_info "Aguardando pods do AWX ficarem prontos..."
+    # Verificar se o namespace existe
+    if ! kubectl get namespace "$AWX_NAMESPACE" &> /dev/null; then
+        log_error "Namespace $AWX_NAMESPACE não existe!"
+        return 1
+    fi
     
-    # Aguardar operator estar pronto
-    kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=awx-operator -n "$AWX_NAMESPACE" --timeout=300s
+    # Aguardar com timeout progressivo
+    local phases=("Pending" "ContainerCreating" "Running")
+    local timeout=120
     
-    # Aguardar AWX instance ser criada
-    local timeout=600
-    local elapsed=0
-    while ! kubectl get awx awx-"$PERFIL" -n "$AWX_NAMESPACE" &> /dev/null; do
-        if [ $elapsed -ge $timeout ]; then
-            log_error "Timeout aguardando criação da instância AWX"
-            exit 1
-        fi
-        sleep 10
-        elapsed=$((elapsed + 10))
-        log_info "Aguardando instância AWX ser criada... (${elapsed}s)"
+    for phase in "${phases[@]}"; do
+        log_info "Aguardando pods na fase: $phase"
+        local elapsed=0
+        
+        while [ $elapsed -lt $timeout ]; do
+            local pod_count=$(kubectl get pods -n "$AWX_NAMESPACE" --field-selector=status.phase="$phase" --no-headers 2>/dev/null | wc -l)
+            
+            if [ "$pod_count" -gt 0 ]; then
+                log_success "Encontrados $pod_count pod(s) na fase $phase"
+                kubectl get pods -n "$AWX_NAMESPACE"
+                break
+            fi
+            
+            sleep 10
+            elapsed=$((elapsed + 10))
+            echo -n "."
+        done
+        echo ""
     done
     
-    # Aguardar todos os pods estarem prontos
-    log_info "Aguardando todos os pods ficarem prontos..."
-    timeout=900
-    elapsed=0
-    while true; do
-        local pending_pods=$(kubectl get pods -n "$AWX_NAMESPACE" --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers 2>/dev/null | wc -l)
-        
-        if [ "$pending_pods" -eq 0 ]; then
-            log_success "Todos os pods estão prontos!"
-            break
-        fi
-        
-        if [ $elapsed -ge $timeout ]; then
-            log_error "Timeout aguardando pods ficarem prontos"
-            kubectl get pods -n "$AWX_NAMESPACE"
-            exit 1
-        fi
-        
-        sleep 15
-        elapsed=$((elapsed + 15))
-        log_info "Aguardando $pending_pods pod(s) ficar(em) pronto(s)... (${elapsed}s)"
-        
-        # Mostrar status dos pods se verbose
-        if [ "$VERBOSE" = true ]; then
-            kubectl get pods -n "$AWX_NAMESPACE"
-        fi
-    done
+    # Verificação final
+    kubectl wait --for=condition=Ready pods --all -n "$AWX_NAMESPACE" --timeout=600s
 }
 
 get_awx_password() {

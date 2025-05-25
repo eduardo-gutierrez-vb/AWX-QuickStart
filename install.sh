@@ -51,8 +51,8 @@ log_subheader() {
 # ============================
 
 # Fatores de segurança para cálculo de recursos
-SAFETY_FACTOR_PROD=70
-SAFETY_FACTOR_DEV=80
+SAFETY_FACTOR_PROD=85
+SAFETY_FACTOR_DEV=90
 
 # Portas padrão
 DEFAULT_HOST_PORT=8080
@@ -105,7 +105,7 @@ reset_awx_deployment() {
 
 # Verificação de conectividade com registry
 test_registry_connectivity() {
-    kubectl run test-registry --image=localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
+    kubectl run test-registry --image=quay.io/ansible/awx-ee:latest \
         --restart=Never -n $AWX_NAMESPACE --command -- sleep 3600 2>/dev/null || true
     kubectl wait --for=condition=Ready pod/test-registry -n $AWX_NAMESPACE --timeout=60s 2>/dev/null || true
     kubectl delete pod test-registry -n $AWX_NAMESPACE 2>/dev/null || true
@@ -387,8 +387,8 @@ calculate_resources_with_feedback() {
     available_mem=$((available_mem * safety_factor / 100))
     
     # Garantir valores mínimos operacionais
-    [ "$available_cpu" -lt 500 ] && available_cpu=500  # 0.5 core mínimo
-    [ "$available_mem" -lt 512 ] && available_mem=512   # 512MB mínimo
+    [ "$available_cpu" -lt 1000 ] && available_cpu=1000  # 1 core mínimo
+    [ "$available_mem" -lt 1024 ] && available_mem=1024   # 1024MB mínimo
     
     log_success "Recursos Disponíveis para AWX:"
     log_success "   > CPU Disponível: ${GREEN}${available_cpu}m${NC} ($(echo "scale=1; $available_cpu/1000" | bc -l) cores)"
@@ -440,7 +440,7 @@ show_help() {
 ${CYAN}=== Script de Implantação AWX com Kind ===${NC}
 
 ${WHITE}USO:${NC}
-    $0 [OPÇÕES]
+    $0 [OPÇÕES]... 
 
 ${WHITE}OPÇÕES:${NC}
     ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: será calculado baseado no perfil)
@@ -457,27 +457,6 @@ ${WHITE}EXEMPLOS:${NC}
     $0 -f 4 -m 8192                     # Forçar 4 CPUs e 8GB RAM
     $0 -d                                # Instalar apenas dependências
     $0 -v -c test-cluster                # Modo verboso com cluster personalizado
-
-${WHITE}DEPENDÊNCIAS INSTALADAS AUTOMATICAMENTE:${NC}
-    - Docker
-    - Kind
-    - kubectl
-    - Helm
-    - Ansible
-    - ansible-builder
-    - Python 3.9 + venv
-
-${WHITE}RECURSOS:${NC}
-    O script detecta automaticamente os recursos do sistema e calcula
-    a configuração ideal para o AWX baseado no perfil detectado:
-    
-    ${GREEN}Produção${NC}: ≥4 CPUs e ≥8GB RAM - Múltiplas réplicas
-    ${YELLOW}Desenvolvimento${NC}: <4 CPUs ou <8GB RAM - Réplica única
-
-${WHITE}ACESSO AWX:${NC}
-    Após a instalação, acesse: http://localhost:PORTA
-    Usuário: admin
-    Senha: (exibida no final da instalação)
 EOF
 }
 
@@ -519,9 +498,6 @@ install_dependencies() {
     
     # Instalar Helm
     install_helm
-    
-    # Instalar Ansible e ansible-builder
-    install_ansible_tools
     
     # Verificar se Docker está funcionando
     check_docker_running
@@ -652,27 +628,6 @@ install_helm() {
     log_success "Helm instalado com sucesso: $(helm version --short)"
 }
 
-install_ansible_tools() {
-    # Verificar se já existe ambiente virtual
-    if [ -d "$HOME/ansible-ee-venv" ]; then
-        log_info "Ambiente virtual Ansible já existe"
-        source "$HOME/ansible-ee-venv/bin/activate"
-    else
-        log_info "Criando ambiente virtual Python para Ansible..."
-        python3.9 -m venv "$HOME/ansible-ee-venv"
-        source "$HOME/ansible-ee-venv/bin/activate"
-    fi
-    
-    if command_exists ansible; then
-        log_info "Ansible já está instalado: $(ansible --version | head -n1)"
-    else
-        log_info "Instalando Ansible e ansible-builder..."
-        pip install --upgrade pip
-        pip install "ansible>=7.0.0" "ansible-builder>=3.0.0"
-        log_success "Ansible e ansible-builder instalados com sucesso!"
-    fi
-}
-
 check_docker_running() {
     if ! docker info >/dev/null 2>&1; then
         log_error "Docker não está funcionando. Verificando..."
@@ -699,19 +654,25 @@ check_docker_running() {
 }
 
 start_local_registry() {
+    # Remover registry existente se houver
+    docker rm -f kind-registry 2>/dev/null || true
+    
+    # Criar network se não existir
     docker network create kind 2>/dev/null || true
+    
+    # Iniciar registry
     docker run -d --network kind --restart=always -p ${REGISTRY_PORT}:5000 --name kind-registry registry:2
-    kubectl apply -f - <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: local-registry-hosting
-  namespace: kube-public
-data:
-  localRegistryHosting.v1: |
-    host: "kind-registry:${REGISTRY_PORT}"
-    help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
-EOF
+    
+    # Aguardar registry estar pronto
+    sleep 10
+    
+    # Verificar se está funcionando
+    if curl -s http://localhost:${REGISTRY_PORT}/v2/ > /dev/null; then
+        log_success "Registry local iniciado com sucesso"
+    else
+        log_error "Falha ao iniciar registry local"
+        exit 1
+    fi
 }
 
 # ============================
@@ -720,11 +681,12 @@ EOF
 
 create_kind_cluster() {
     log_header "CRIAÇÃO DO CLUSTER KIND"
+    
     # Verificar cluster existente
     if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
         log_warning "Cluster '$CLUSTER_NAME' já existe. Deletando..."
         kind delete cluster --name "$CLUSTER_NAME"
-        validate_environment
+        sleep 15
     fi
     
     log_info "Criando cluster Kind '$CLUSTER_NAME'..."
@@ -748,6 +710,10 @@ nodes:
   - |
     kind: KubeletConfiguration
     maxPods: 110
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:${REGISTRY_PORT}"]
+    endpoint = ["http://kind-registry:5000"]
 EOF
 
     # Adicionar workers se for produção
@@ -776,27 +742,19 @@ EOF
     configure_registry_for_cluster
 }
 
-# Função corrigida para configurar registry no cluster - CORREÇÃO DO CONFIGMAP
 configure_registry_for_cluster() {
     log_subheader "Configurando Registry Local"
     
     # Conectar registry ao network do kind
-    if ! docker network ls | grep -q kind; then
-        docker network create kind
-    fi
     docker network connect kind kind-registry 2>/dev/null || true
     
-    # Configurar registry no cluster - YAML CORRIGIDO
+    # Configurar registry no cluster
     kubectl apply -f - << EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: local-registry-hosting
   namespace: kube-public
-  labels:
-    app.kubernetes.io/name: "awx"
-    app.kubernetes.io/component: "registry-config"
-    app.kubernetes.io/managed-by: "awx-deploy-script"
 data:
   localRegistryHosting.v1: |
     host: "localhost:${REGISTRY_PORT}"
@@ -807,274 +765,25 @@ EOF
 }
 
 # ============================
-# VALIDAÇÃO E ARQUIVOS EE CORRIGIDOS - BASEADO NAS MELHORES PRÁTICAS
-# ============================
-
-validate_ee_definition() {
-    log_info "Validando definição do EE..."
-    
-    # Verificar arquivos necessários
-    local required_files=("execution-environment.yml" "requirements.yml" "requirements.txt" "bindep.txt")
-    
-    for file in "${required_files[@]}"; do
-        if [ ! -f "$file" ]; then
-            log_error "Arquivo necessário não encontrado: $file"
-            return 1
-        fi
-    done
-    
-    # Validar YAML
-    if ! python -c "import yaml; yaml.safe_load(open('execution-environment.yml'))" 2>/dev/null; then
-        log_error "Erro de sintaxe em execution-environment.yml"
-        return 1
-    fi
-    
-    log_success "Validação da definição EE concluída"
-    return 0
-}
-
-create_production_ready_ee_files() {
-    log_info "Criando arquivos de configuração para produção..."
-    
-    # execution-environment.yml otimizado - CORREÇÃO BASEADA NAS MELHORES PRÁTICAS
-    cat > execution-environment.yml << 'EOF'
----
-version: 3
-images:
-  base_image:
-    name: quay.io/ansible/awx-ee:latest
-dependencies:
-  galaxy: requirements.yml
-  python: requirements.txt
-  system: bindep.txt
-  ansible_core:
-    package_pip: ansible-core>=2.15.0,<2.17.0
-  ansible_runner:
-    package_pip: ansible-runner>=2.3.0,<2.5.0
-additional_build_steps:
-  prepend_base:
-    - RUN dnf clean all && dnf makecache --refresh
-    - RUN dnf update -y --nodocs --setopt=install_weak_deps=False
-    - RUN dnf install -y git curl wget rsync openssh-clients
-  prepend_galaxy:
-    - RUN git config --global --add safe.directory '*'
-    - RUN mkdir -p /tmp/ansible-collections
-  append_final:
-    - RUN rm -rf /tmp/* /var/tmp/* /root/.cache /root/.ansible
-    - RUN python -m pip check
-    - RUN ansible-galaxy collection list
-EOF
-
-    # requirements.yml com versões específicas - CORREÇÃO
-    cat > requirements.yml << 'EOF'
----
-collections:
-  - name: community.general
-    version: ">=8.0.0"
-  - name: community.windows
-    version: ">=2.2.0"
-  - name: ansible.windows
-    version: ">=2.3.0"
-  - name: kubernetes.core
-    version: ">=3.0.0"
-  - name: community.crypto
-    version: ">=2.15.0"
-  - name: amazon.aws
-    version: ">=7.0.0"
-  - name: azure.azcollection
-    version: ">=2.0.0"
-  - name: google.cloud
-    version: ">=1.3.0"
-EOF
-
-    # requirements.txt com dependências Python compatíveis - CORREÇÃO
-    cat > requirements.txt << 'EOF'
-# Core Ansible - versões compatíveis
-ansible-core>=2.15.0,<2.17.0
-ansible-runner>=2.3.0,<2.5.0
-
-# Dependências de rede e criptografia
-netaddr>=0.10.1
-cryptography>=41.0.0
-requests>=2.31.0
-urllib3>=2.0.0,<3.0.0
-
-# Cloud providers
-boto3>=1.26.0
-botocore>=1.29.0
-azure-identity>=1.15.0
-google-cloud-compute>=1.15.0
-
-# Kubernetes e containers
-kubernetes>=28.1.0
-pyyaml>=6.0.1
-
-# Ferramentas de sistema
-psutil>=5.9.0
-paramiko>=2.12.0
-jinja2>=3.1.2
-EOF
-
-    # bindep.txt com dependências de sistema - CORREÇÃO
-    cat > bindep.txt << 'EOF'
-# Dependências de compilação
-gcc [platform:rpm compile]
-python3-devel [platform:rpm compile]
-openssl-devel [platform:rpm compile]
-
-# Kerberos e autenticação
-krb5-devel [platform:rpm]
-libffi-devel [platform:rpm]
-
-# Ferramentas de rede
-curl
-wget
-rsync
-openssh-clients [platform:rpm]
-
-# Git para coleções
-git
-
-# Dependências adicionais para collections
-libxml2-devel [platform:rpm compile]
-libxslt-devel [platform:rpm compile]
-EOF
-}
-
-push_to_local_registry() {
-    local runtime=$1
-    
-    log_info "Enviando imagem para registry local..."
-    
-    # Verificar se registry está disponível
-    if ! curl -s http://localhost:${REGISTRY_PORT}/v2/ > /dev/null; then
-        log_error "Registry local não está disponível em localhost:${REGISTRY_PORT}"
-        return 1
-    fi
-    
-    # Push da imagem
-    if $runtime push localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest; then
-        log_success "Imagem enviada com sucesso para registry local"
-        
-        # Verificar disponibilidade
-        sleep 5
-        if curl -s http://localhost:${REGISTRY_PORT}/v2/_catalog | grep -q awx-enterprise-ee; then
-            log_success "Imagem verificada no registry: awx-enterprise-ee"
-        else
-            log_warning "Imagem não encontrada no catálogo do registry"
-        fi
-    else
-        log_error "Falha ao enviar imagem para registry"
-        return 1
-    fi
-}
-
-test_execution_environment() {
-    log_info "Testando Execution Environment..."
-    
-    local test_container="awx-ee-test-$(date +%s)"
-    
-    # Executar container de teste
-    if docker run --name "$test_container" \
-        localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
-        ansible --version; then
-        
-        log_success "Teste de Ansible executado com sucesso"
-        
-        # Testar coleções instaladas
-        docker run --rm \
-            localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
-            ansible-galaxy collection list
-        
-        # Limpar container de teste
-        docker rm -f "$test_container" 2>/dev/null || true
-        
-        return 0
-    else
-        log_error "Falha no teste do EE"
-        docker rm -f "$test_container" 2>/dev/null || true
-        return 1
-    fi
-}
-
-# ============================
-# CRIAÇÃO DO EXECUTION ENVIRONMENT CORRIGIDA - BASEADA NAS MELHORES PRÁTICAS
+# CRIAÇÃO DO EXECUTION ENVIRONMENT SIMPLIFICADA
 # ============================
 
 create_execution_environment() {
-    log_header "CRIAÇÃO DO EXECUTION ENVIRONMENT"
+    log_header "CONFIGURAÇÃO DO EXECUTION ENVIRONMENT"
     
-    # Verificar pré-requisitos
-    if ! command -v ansible-builder &> /dev/null; then
-        log_error "ansible-builder não encontrado. Instalando..."
-        pip install ansible-builder
-    fi
+    # Usar EE padrão em vez de criar customizado
+    log_info "Usando Execution Environment padrão do AWX..."
+    export EE_IMAGE="quay.io/ansible/awx-ee:latest"
     
-    # Ativar ambiente virtual se existir
-    if [ -d "$HOME/ansible-ee-venv" ]; then
-        source "$HOME/ansible-ee-venv/bin/activate"
-    fi
-    
-    log_info "Preparando Execution Environment..."
-    
-    # Criar diretório de trabalho
-    EE_DIR="/tmp/awx-ee-build-$(date +%s)"
-    mkdir -p "$EE_DIR"
-    cd "$EE_DIR"
-    
-    # Criar arquivos de configuração otimizados
-    create_production_ready_ee_files
-    
-    # Validar arquivos
-    if ! validate_ee_definition; then
-        log_error "Validação da definição EE falhou"
-        cd /
-        rm -rf "$EE_DIR"
-        return 1
-    fi
-    
-    # Configurar parâmetros de build
-    local container_runtime="docker"
-    if command -v podman &> /dev/null; then
-        container_runtime="podman"
-    fi
-    
-    log_info "Usando container runtime: $container_runtime"
-    
-    # Executar build com configurações corrigidas - CORREÇÃO DA FLAG VERBOSITY
-    local build_command="ansible-builder build \
-        --tag localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
-        --file execution-environment.yml \
-        --container-runtime $container_runtime \
-        -v 2"
-    
-    log_info "Executando: $build_command"
-    
-    if eval "$build_command"; then
-        log_success "Build do EE concluído com sucesso!"
-        
-        # Verificar imagem criada
-        $container_runtime images | grep awx-enterprise-ee
-        
-        # Testar a imagem
-        test_execution_environment
-        
-        # Enviar para registry local
-        push_to_local_registry "$container_runtime"
-        
+    # Fazer pull da imagem para garantir disponibilidade
+    log_info "Fazendo pull da imagem EE..."
+    if docker pull "$EE_IMAGE"; then
+        log_success "EE padrão disponível: $EE_IMAGE"
+        return 0
     else
-        log_error "Falha no build do EE"
-        log_error "Verificando logs de erro..."
-        cd /
-        rm -rf "$EE_DIR"
+        log_error "Falha ao baixar EE padrão"
         return 1
     fi
-    
-    # Limpar diretório temporário
-    cd /
-    rm -rf "$EE_DIR"
-    
-    return 0
 }
 
 # ============================
@@ -1100,35 +809,34 @@ install_awx() {
     
     log_success "AWX Operator instalado com sucesso!"
     
+    # Aguardar operator estar pronto
+    kubectl wait --for=condition=Available deployment/awx-operator-controller-manager -n "$AWX_NAMESPACE" --timeout=300s
+    
     # Criar instância AWX
     create_awx_instance
 }
 
-# Função corrigida para calcular recursos AWX dinamicamente
 calculate_awx_resources() {
     # Usar variáveis calculadas anteriormente
     local available_cpu=$AVAILABLE_CPU_MILLICORES
     local available_mem=$AVAILABLE_MEMORY_MB
 
-    # Converter milicores para cálculos
-    local available_cores=$((available_cpu / 1000))
+    # Cálculos dinâmicos mais generosos para garantir funcionamento
+    local web_cpu_req="$((available_cpu * 20 / 100))m"    # 20% do CPU disponível
+    local web_cpu_lim="$((available_cpu * 50 / 100))m"    # 50% do CPU disponível
+    local web_mem_req="$((available_mem * 20 / 100))Mi"   # 20% da memória disponível
+    local web_mem_lim="$((available_mem * 40 / 100))Mi"   # 40% da memória disponível
     
-    # Cálculos dinâmicos baseados em porcentagens dos recursos disponíveis
-    local web_cpu_req="$((available_cpu * 5 / 100))m"    # 5% do CPU disponível
-    local web_cpu_lim="$((available_cpu * 30 / 100))m"   # 30% do CPU disponível
-    local web_mem_req="$((available_mem * 5 / 100))Mi"   # 5% da memória disponível
-    local web_mem_lim="$((available_mem * 25 / 100))Mi"  # 25% da memória disponível
-    
-    local task_cpu_req="$((available_cpu * 10 / 100))m"   # 10% do CPU disponível
+    local task_cpu_req="$((available_cpu * 15 / 100))m"   # 15% do CPU disponível
     local task_cpu_lim="$((available_cpu * 60 / 100))m"   # 60% do CPU disponível
-    local task_mem_req="$((available_mem * 10 / 100))Mi"  # 10% da memória disponível
+    local task_mem_req="$((available_mem * 15 / 100))Mi"  # 15% da memória disponível
     local task_mem_lim="$((available_mem * 50 / 100))Mi"  # 50% da memória disponível
     
-    # Ajustar para valores mínimos operacionais
-    [ "${web_cpu_req%m}" -lt 50 ] && web_cpu_req="50m"
-    [ "${web_mem_req%Mi}" -lt 128 ] && web_mem_req="128Mi"
-    [ "${task_cpu_req%m}" -lt 50 ] && task_cpu_req="50m"
-    [ "${task_mem_req%Mi}" -lt 128 ] && task_mem_req="128Mi"
+    # Garantir valores mínimos operacionais mais altos
+    [ "${web_cpu_req%m}" -lt 500 ] && web_cpu_req="500m"
+    [ "${web_mem_req%Mi}" -lt 1024 ] && web_mem_req="1024Mi"
+    [ "${task_cpu_req%m}" -lt 500 ] && task_cpu_req="500m"
+    [ "${task_mem_req%Mi}" -lt 1024 ] && task_mem_req="1024Mi"
     
     # Exportar valores calculados
     export AWX_WEB_CPU_REQ="$web_cpu_req"
@@ -1153,8 +861,9 @@ create_awx_instance() {
     # Calcular recursos AWX dinamicamente
     calculate_awx_resources
     
-    # Criar manifesto AWX com recursos calculados DINAMICAMENTE
-    cat > /tmp/awx-instance.yaml << EOF
+    # Configuração simplificada para desenvolvimento
+    if [ "$PERFIL" = "dev" ]; then
+        cat > /tmp/awx-instance.yaml << EOF
 apiVersion: awx.ansible.com/v1beta1
 kind: AWX
 metadata:
@@ -1162,19 +871,64 @@ metadata:
   namespace: ${AWX_NAMESPACE}
 spec:
   service_type: nodeport
-  nodeport_port: ${HOST_PORT}
+  nodeport_port: 30000
   admin_user: admin
   admin_email: admin@example.com
   
-  # Execution Environment personalizado
-  control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
+  # Configuração simplificada para dev
+  replicas: 1
+  
+  # Recursos mínimos garantidos
+  web_resource_requirements:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  task_resource_requirements:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  postgres_resource_requirements:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  
+  postgres_storage_requirements:
+    requests:
+      storage: 8Gi
+    limits:
+      storage: 8Gi
+EOF
+    else
+        # Configuração completa para produção
+        cat > /tmp/awx-instance.yaml << EOF
+apiVersion: awx.ansible.com/v1beta1
+kind: AWX
+metadata:
+  name: awx-${PERFIL}
+  namespace: ${AWX_NAMESPACE}
+spec:
+  service_type: nodeport
+  nodeport_port: 30000
+  admin_user: admin
+  admin_email: admin@example.com
   
   # Configuração de réplicas baseada no perfil
   replicas: ${WEB_REPLICAS}
   web_replicas: ${WEB_REPLICAS}
   task_replicas: ${TASK_REPLICAS}
   
-  # Recursos para web containers - VALORES CALCULADOS DINAMICAMENTE
+  # Recursos para web containers
   web_resource_requirements:
     requests:
       cpu: ${AWX_WEB_CPU_REQ}
@@ -1183,7 +937,7 @@ spec:
       cpu: ${AWX_WEB_CPU_LIM}
       memory: ${AWX_WEB_MEM_LIM}
   
-  # Recursos para task containers - VALORES CALCULADOS DINAMICAMENTE
+  # Recursos para task containers
   task_resource_requirements:
     requests:
       cpu: ${AWX_TASK_CPU_REQ}
@@ -1192,25 +946,27 @@ spec:
       cpu: ${AWX_TASK_CPU_LIM}
       memory: ${AWX_TASK_MEM_LIM}
   
-  # Persistência de projetos
-  projects_persistence: true
-  projects_storage_size: 8Gi
-  projects_storage_access_mode: ReadWriteOnce
+  postgres_resource_requirements:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
   
-  # Configurações adicionais
-  postgres_configuration_secret: awx-postgres-configuration
   postgres_storage_requirements:
     requests:
       storage: 8Gi
     limits:
       storage: 8Gi
 EOF
+    fi
 
     # Aplicar manifesto
     kubectl apply -f /tmp/awx-instance.yaml -n "$AWX_NAMESPACE"
     rm /tmp/awx-instance.yaml
     
-    log_success "Instância AWX criada com recursos calculados dinamicamente!"
+    log_success "Instância AWX criada!"
 }
 
 # ============================
@@ -1226,38 +982,31 @@ wait_for_awx() {
         return 1
     fi
     
-    # Aguardar com timeout progressivo
-    local phases=("Pending" "ContainerCreating" "Running")
-    local timeout=120
-    
-    for phase in "${phases[@]}"; do
-        log_info "Aguardando pods na fase: $phase"
-        local elapsed=0
-        
-        while [ $elapsed -lt $timeout ]; do
-            local pod_count=$(kubectl get pods -n "$AWX_NAMESPACE" --field-selector=status.phase="$phase" --no-headers 2>/dev/null | wc -l)
-            
-            if [ "$pod_count" -gt 0 ]; then
-                log_success "Encontrados $pod_count pod(s) na fase $phase"
-                kubectl get pods -n "$AWX_NAMESPACE"
-                break
-            fi
-            
-            sleep 10
-            elapsed=$((elapsed + 10))
-            echo -n "."
-        done
-        echo ""
+    # Aguardar deployment AWX ser criado
+    log_info "Aguardando deployment AWX ser criado..."
+    local timeout=300
+    local elapsed=0
+    while ! kubectl get awx awx-"$PERFIL" -n "$AWX_NAMESPACE" &> /dev/null; do
+        if [ $elapsed -ge $timeout ]; then
+            log_error "Timeout aguardando AWX ser criado"
+            exit 1
+        fi
+        sleep 10
+        elapsed=$((elapsed + 10))
+        echo -n "."
     done
+    echo ""
     
-    # Verificação final com diagnóstico automático
-    if ! kubectl wait --for=condition=Ready pods --all -n "$AWX_NAMESPACE" --timeout=600s; then
+    # Aguardar pods estarem prontos
+    log_info "Aguardando pods do AWX estarem prontos..."
+    if ! kubectl wait --for=condition=Ready pods --all -n "$AWX_NAMESPACE" --timeout=900s; then
         log_error "Pods não ficaram prontos. Executando diagnóstico..."
         diagnose_awx_pods
         check_cluster_resources
-        check_registry
         exit 1
     fi
+    
+    log_success "AWX está pronto!"
 }
 
 get_awx_password() {
@@ -1268,8 +1017,7 @@ get_awx_password() {
     local elapsed=0
     while ! kubectl get secret awx-"$PERFIL"-admin-password -n "$AWX_NAMESPACE" &> /dev/null; do
         if [ $elapsed -ge $timeout ]; then
-            log_error "Timeout aguardando senha do AWX. Verifique os logs:"
-            log_error "kubectl logs -n $AWX_NAMESPACE deployment/awx-operator-controller-manager"
+            log_error "Timeout aguardando senha do AWX"
             exit 1
         fi
         sleep 5
@@ -1284,14 +1032,11 @@ get_awx_password() {
 show_final_info() {
     log_header "INSTALAÇÃO CONCLUÍDA"
     
-    # Obter IP do nó
-    local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-    
     echo ""
     log_success "=== AWX IMPLANTADO COM SUCESSO ==="
     echo ""
     log_info "📋 INFORMAÇÕES DE ACESSO:"
-    log_info "   URL: ${GREEN}http://${node_ip}:${HOST_PORT}${NC}"
+    log_info "   URL: ${GREEN}http://localhost:${HOST_PORT}${NC}"
     log_info "   Usuário: ${GREEN}admin${NC}"
     log_info "   Senha: ${GREEN}$AWX_PASSWORD${NC}"
     echo ""
@@ -1299,27 +1044,19 @@ show_final_info() {
     log_info "   Perfil: ${GREEN}$PERFIL${NC}"
     log_info "   CPUs Detectadas: ${GREEN}$CORES${NC}"
     log_info "   Memória Detectada: ${GREEN}${MEM_MB}MB${NC}"
-    log_info "   Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
-    log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
-    echo ""
-    log_info "📊 RECURSOS ALOCADOS:"
-    log_info "   Web CPU: ${GREEN}${AWX_WEB_CPU_REQ} - ${AWX_WEB_CPU_LIM}${NC}"
-    log_info "   Web Mem: ${GREEN}${AWX_WEB_MEM_REQ} - ${AWX_WEB_MEM_LIM}${NC}"
-    log_info "   Task CPU: ${GREEN}${AWX_TASK_CPU_REQ} - ${AWX_TASK_CPU_LIM}${NC}"
-    log_info "   Task Mem: ${GREEN}${AWX_TASK_MEM_REQ} - ${AWX_TASK_MEM_LIM}${NC}"
+    if [ "$PERFIL" = "prod" ]; then
+        log_info "   Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
+        log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
+    else
+        log_info "   Réplicas: ${GREEN}1${NC} (desenvolvimento)"
+    fi
     echo ""
     log_info "🚀 COMANDOS ÚTEIS:"
     log_info "   Ver pods: ${CYAN}kubectl get pods -n $AWX_NAMESPACE${NC}"
     log_info "   Ver logs web: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-web${NC}"
     log_info "   Ver logs task: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-task${NC}"
-    log_info "   Diagnosticar problemas: ${CYAN}diagnose_awx_pods${NC}"
     log_info "   Deletar cluster: ${CYAN}kind delete cluster --name $CLUSTER_NAME${NC}"
     echo ""
-    
-    if [ "$VERBOSE" = true ]; then
-        log_info "🔍 STATUS ATUAL DOS PODS:"
-        kubectl get pods -n "$AWX_NAMESPACE" -o wide
-    fi
 }
 
 # ============================
@@ -1328,7 +1065,7 @@ show_final_info() {
 
 # Valores padrão que não dependem do perfil
 INSTALL_DEPS_ONLY=false
-VERBOSE=true
+VERBOSE=false
 
 # Variáveis de recursos (pode forçar)
 FORCE_CPU=""
@@ -1415,9 +1152,9 @@ log_info "   Ambiente: ${GREEN}$PERFIL${NC}"
 log_info "   Cluster: ${GREEN}$CLUSTER_NAME${NC}"
 log_info "   Porta: ${GREEN}$HOST_PORT${NC}"
 log_info "   Namespace: ${GREEN}$AWX_NAMESPACE${NC}"
-log_info "   Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
-log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
-log_info "   Verbose: ${GREEN}$VERBOSE${NC}"
+
+# Validar ambiente
+validate_environment
 
 # Instalar dependências
 install_dependencies
@@ -1432,18 +1169,10 @@ fi
 # Continuar com a instalação completa
 create_kind_cluster
 
-# Criar EE com tratamento de erro melhorado
-if ! create_execution_environment; then
-    log_error "Falha na criação do Execution Environment"
-    log_warning "Tentando usar EE padrão do AWX..."
-    
-    # Fallback: usar EE padrão
-    log_info "Usando Execution Environment padrão"
-    export EE_IMAGE="quay.io/ansible/awx-ee:latest"
-else
-    export EE_IMAGE="localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest"
-fi
+# Configurar EE
+create_execution_environment
 
+# Instalar AWX
 install_awx
 wait_for_awx
 get_awx_password

@@ -680,18 +680,7 @@ collections:
 EOF
 
     cat > requirements.txt << 'EOF'
-netaddr>=0.10.1
-jinja2>=3.1.2
-boto3>=1.26.0
-azure-identity>=1.15.0
-google-cloud-compute>=1.15.0
-ansible-core==2.15.6
-ansible-runner==2.3.6
-cryptography>=41.0.0
-requests>=2.31.0
-urllib3>=2.0.0
-pyyaml>=6.0.1
-kubernetes>=28.1.0
+git+https://github.com/ansible/ansible-builder.git@devel#egg=ansible-builder
 EOF
 
     cat > bindep.txt << 'EOF'

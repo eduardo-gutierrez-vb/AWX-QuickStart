@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        CONFIGURAÇÕES PRINCIPAIS                             ║
@@ -107,7 +107,6 @@ PROD_MIN_MEMORY=8192
 # │                        FUNÇÕES DE DISPLAY                                  │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-# Função para criar caixas decorativas
 create_box() {
     local title="$1"
     local width="${2:-80}"
@@ -116,14 +115,14 @@ create_box() {
     local top_line="╔$(printf '═%.0s' $(seq 1 $((width-2))))╗"
     local bottom_line="╚$(printf '═%.0s' $(seq 1 $((width-2))))╝"
     local title_padding=$(( (width - ${#title} - 4) / 2 ))
-    local title_line="║$(printf ' %.0s' $(seq 1 $title_padding)) ${title} $(printf ' %.0s' $(seq 1 $title_padding))║"
+    [ $title_padding -lt 0 ] && title_padding=0
+    local title_line="║$(printf ' %.0s' $(seq 1 $title_padding)) ${title} $(printf ' %.0s' $(seq 1 $((width - ${#title} - title_padding -3 ))))║"
     
     echo -e "${color}${top_line}${NC}"
-    echo -e "${color}${title_line}${NC}"
+    echo -e "${color}${title_line:0:$width}${NC}"
     echo -e "${color}${bottom_line}${NC}"
 }
 
-# Função para criar separadores estilizados
 create_separator() {
     local char="${1:-─}"
     local width="${2:-80}"
@@ -134,7 +133,6 @@ create_separator() {
     printf "${NC}\n"
 }
 
-# Função para exibir banner principal
 show_banner() {
     clear
     echo -e "${CYAN}${BOLD}"
@@ -147,14 +145,13 @@ show_banner() {
    ║    ██║  ██║╚███╔███╔╝██╔╝ ██╗    ██████╔╝███████╗██║     ███████╗╚██████╔╝   ║
    ║    ╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═╝    ╚═════╝ ╚══════╝╚═╝     ╚══════╝ ╚═════╝    ║
    ║                                                                               ║
-   ║           ${FIRE} Script de Implantação AWX com Kubernetes Kind ${FIRE}               ║
-   ║                      ${LIGHTNING} Versão Moderna e Aprimorada ${LIGHTNING}                       ║
+   ║           🔥 Script de Implantação AWX com Kubernetes Kind 🔥               ║
+   ║                      ⚡ Versão Moderna e Aprimorada ⚡                       ║
    ╚═══════════════════════════════════════════════════════════════════════════════╝
 EOF
     echo -e "${NC}"
 }
 
-# Spinner animado para operações longas
 show_spinner() {
     local pid=$1
     local message="$2"
@@ -166,14 +163,13 @@ show_spinner() {
     while kill -0 $pid 2>/dev/null; do
         temp=${spinstr#?}
         printf "${YELLOW}[%c]${NC}" "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
+        spinstr=$temp${spinstr%"$temp"}
         sleep $delay
         printf "\b\b\b"
     done
     echo -e "${GREEN}${ICON_CHECKMARK} Concluído!${NC}"
 }
 
-# Barra de progresso avançada
 show_progress() {
     local current=$1
     local total=$2
@@ -182,9 +178,9 @@ show_progress() {
     local completed=$((current * width / total))
     local remaining=$((width - completed))
     
-    printf "\r${CYAN}${BOLD}Progress:${NC} ["
-    printf "${GREEN}${'#' * $completed}${NC}"
-    printf "${DIM}${'.' * $remaining}${NC}"
+    printf "\r${CYAN}${BOLD}Progresso:${NC} ["
+    printf "${GREEN}%${completed}s" | tr ' ' '#'
+    printf "${DIM}%${remaining}s" | tr ' ' '.'
     printf "] ${YELLOW}%d%%${NC} ${BLUE}(%d/%d)${NC}" "$percentage" "$current" "$total"
 }
 
@@ -192,7 +188,6 @@ show_progress() {
 # │                        FUNÇÕES DE LOG AVANÇADAS                            │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-# Sistema de log aprimorado com timestamps e ícones
 log_with_style() {
     local level="$1"
     local message="$2"
@@ -250,22 +245,20 @@ log_subheader() {
     echo -e "${BLUE}${BOLD}┌─ ${title} ─┐${NC}"
 }
 
-# Função para exibir informações do sistema de forma estilizada
 show_system_info() {
     local cores="$1"
     local memory="$2"
     local profile="$3"
     
     echo -e "${CYAN}${BOLD}╭─────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${CYAN}${BOLD}│                    ${GEAR} INFORMAÇÕES DO SISTEMA                    │${NC}"
+    echo -e "${CYAN}${BOLD}│                    ⚙️ INFORMAÇÕES DO SISTEMA                    │${NC}"
     echo -e "${CYAN}${BOLD}├─────────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│ ${ICON_GEAR} CPUs Detectadas:    ${GREEN}${BOLD}${cores} cores${NC}${CYAN}                          │${NC}"
-    echo -e "${CYAN}│ ${ICON_GEAR} Memória Disponível: ${GREEN}${BOLD}${memory} MB${NC}${CYAN}                         │${NC}"
-    echo -e "${CYAN}│ ${ICON_STAR} Perfil Selecionado: ${YELLOW}${BOLD}${profile}${NC}${CYAN}                            │${NC}"
+    echo -e "${CYAN}│ ⚙️ CPUs Detectadas:    ${GREEN}${BOLD}${cores} cores${NC}${CYAN}                          │${NC}"
+    echo -e "${CYAN}│ ⚙️ Memória Disponível: ${GREEN}${BOLD}${memory} MB${NC}${CYAN}                         │${NC}"
+    echo -e "${CYAN}│ ⭐ Perfil Selecionado: ${YELLOW}${BOLD}${profile}${NC}${CYAN}                            │${NC}"
     echo -e "${CYAN}${BOLD}╰─────────────────────────────────────────────────────────────╯${NC}"
 }
 
-# Função para exibir configurações de deployment
 show_deployment_config() {
     local cluster_name="$1"
     local host_port="$2"
@@ -273,21 +266,19 @@ show_deployment_config() {
     local task_replicas="$4"
     
     echo -e "${PURPLE}${BOLD}╭─────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${PURPLE}${BOLD}│                 ${ROCKET} CONFIGURAÇÃO DE DEPLOYMENT               │${NC}"
+    echo -e "${PURPLE}${BOLD}│                 🚀 CONFIGURAÇÃO DE DEPLOYMENT               │${NC}"
     echo -e "${PURPLE}${BOLD}├─────────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${PURPLE}│ ${ICON_GEAR} Nome do Cluster:   ${CYAN}${BOLD}${cluster_name}${NC}${PURPLE}                     │${NC}"
-    echo -e "${PURPLE}│ ${ICON_GEAR} Porta de Acesso:   ${CYAN}${BOLD}${host_port}${NC}${PURPLE}                             │${NC}"
-    echo -e "${PURPLE}│ ${ICON_GEAR} Réplicas Web:      ${CYAN}${BOLD}${web_replicas}${NC}${PURPLE}                               │${NC}"
-    echo -e "${PURPLE}│ ${ICON_GEAR} Réplicas Task:     ${CYAN}${BOLD}${task_replicas}${NC}${PURPLE}                              │${NC}"
+    echo -e "${PURPLE}│ ⚙️ Nome do Cluster:   ${CYAN}${BOLD}${cluster_name}${NC}${PURPLE}                     │${NC}"
+    echo -e "${PURPLE}│ ⚙️ Porta de Acesso:   ${CYAN}${BOLD}${host_port}${NC}${PURPLE}                             │${NC}"
+    echo -e "${PURPLE}│ ⚙️ Réplicas Web:      ${CYAN}${BOLD}${web_replicas}${NC}${PURPLE}                               │${NC}"
+    echo -e "${PURPLE}│ ⚙️ Réplicas Task:     ${CYAN}${BOLD}${task_replicas}${NC}${PURPLE}                              │${NC}"
     echo -e "${PURPLE}${BOLD}╰─────────────────────────────────────────────────────────────╯${NC}"
 }
-
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
 # │                    SISTEMA DE MONITORAMENTO AVANÇADO                       │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-# Função para monitorar progresso de instalação com feedback visual
 monitor_installation_progress() {
     local component="$1"
     local namespace="$2"
@@ -298,7 +289,6 @@ monitor_installation_progress() {
     local elapsed=0
     local spinner_pid
     
-    # Iniciar spinner em background
     (while true; do
         for char in '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏'; do
             printf "\r${BLUE}${char} Aguardando ${component}...${NC}"
@@ -307,14 +297,13 @@ monitor_installation_progress() {
     done) &
     spinner_pid=$!
     
-    # Monitorar pods
     while [ $elapsed -lt $timeout ]; do
         local ready_pods=$(kubectl get pods -n "$namespace" --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
         local total_pods=$(kubectl get pods -n "$namespace" --no-headers 2>/dev/null | wc -l)
         
         if [ "$ready_pods" -gt 0 ] && [ "$ready_pods" -eq "$total_pods" ]; then
-            kill $spinner_pid 2>/dev/null || true
-            printf "\r${GREEN}${ICON_SUCCESS} ${component} instalado com sucesso! (${ready_pods}/${total_pods} pods prontos)${NC}\n"
+            kill $spinner_pid 2>/dev/null
+            printf "\r${GREEN}✅ ${component} instalado com sucesso! (${ready_pods}/${total_pods} pods prontos)${NC}\n"
             return 0
         fi
         
@@ -322,12 +311,11 @@ monitor_installation_progress() {
         elapsed=$((elapsed + 5))
     done
     
-    kill $spinner_pid 2>/dev/null || true
-    printf "\r${RED}${ICON_ERROR} Timeout na instalação de ${component}${NC}\n"
+    kill $spinner_pid 2>/dev/null
+    printf "\r${RED}❌ Timeout na instalação de ${component}${NC}\n"
     return 1
 }
 
-# Função para exibir status detalhado do cluster
 show_cluster_status() {
     local cluster_name="$1"
     
@@ -340,9 +328,9 @@ show_cluster_status() {
         local role=$(echo $line | awk '{print $3}')
         
         if [ "$status" = "Ready" ]; then
-            echo -e "  ${GREEN}${ICON_CHECKMARK} ${node_name}${NC} ${CYAN}(${role})${NC}"
+            echo -e "  ${GREEN}✓ ${node_name}${NC} ${CYAN}(${role})${NC}"
         else
-            echo -e "  ${RED}${ICON_CROSS} ${node_name}${NC} ${YELLOW}(${status})${NC}"
+            echo -e "  ${RED}✗ ${node_name}${NC} ${YELLOW}(${status})${NC}"
         fi
     done
     
@@ -355,7 +343,6 @@ show_cluster_status() {
     echo -e "  ${CYAN}Memória:${NC} ${mem_usage}"
 }
 
-# Função para validar e exibir pré-requisitos
 validate_prerequisites() {
     log_header "VALIDAÇÃO DE PRÉ-REQUISITOS"
     
@@ -373,11 +360,11 @@ validate_prerequisites() {
         local cmd=$(echo $req | cut -d: -f1)
         local name=$(echo $req | cut -d: -f2)
         
-        if command_exists "$cmd"; then
+        if command -v "$cmd" &>/dev/null; then
             local version=$(get_version "$cmd")
-            echo -e "  ${GREEN}${ICON_CHECKMARK} ${name}${NC} ${DIM}(${version})${NC}"
+            echo -e "  ${GREEN}✓ ${name}${NC} ${DIM}(${version})${NC}"
         else
-            echo -e "  ${RED}${ICON_CROSS} ${name}${NC} ${YELLOW}(não instalado)${NC}"
+            echo -e "  ${RED}✗ ${name}${NC} ${YELLOW}(não instalado)${NC}"
             ((missing_count++))
         fi
     done
@@ -393,7 +380,6 @@ validate_prerequisites() {
     fi
 }
 
-# Função auxiliar para obter versões
 get_version() {
     case "$1" in
         docker) docker --version 2>/dev/null | cut -d' ' -f3 | tr -d ',' || echo "unknown" ;;
@@ -405,7 +391,6 @@ get_version() {
     esac
 }
 
-
 # ┌─────────────────────────────────────────────────────────────────────────────┐
 # │                       SISTEMA DE AJUDA AVANÇADO                            │
 # └─────────────────────────────────────────────────────────────────────────────┘
@@ -415,21 +400,16 @@ show_interactive_help() {
     show_banner
     
     echo -e "${CYAN}${BOLD}╭─────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${CYAN}${BOLD}│                      ${ICON_INFO} GUIA DE USO                         │${NC}"
+    echo -e "${CYAN}${BOLD}│                      ℹ️ GUIA DE USO                         │${NC}"
     echo -e "${CYAN}${BOLD}├─────────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│                                                             │${NC}"
-    echo -e "${CYAN}│ ${GREEN}${BOLD}Uso Básico:${NC}${CYAN}                                             │${NC}"
-    echo -e "${CYAN}│   ${YELLOW}$0${NC}${CYAN} [OPÇÕES]                                        │${NC}"
-    echo -e "${CYAN}│                                                             │${NC}"
-    echo -e "${CYAN}${BOLD}├─────────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│                     ${GEAR} OPÇÕES DISPONÍVEIS                    │${NC}"
+    echo -e "${CYAN}│ Uso Básico: ${YELLOW}$0 [OPÇÕES]${NC}${CYAN}                                │${NC}"
     echo -e "${CYAN}${BOLD}├─────────────────────────────────────────────────────────────┤${NC}"
     
     local options=(
-        "-c NOME:Nome do cluster Kind:awx-cluster-${PERFIL:-auto}"
-        "-p PORTA:Porta de acesso ao AWX:${DEFAULT_HOST_PORT}"
-        "-f CPU:Forçar número de CPUs:auto-detectar"
-        "-m MEMORIA:Forçar quantidade de memória (MB):auto-detectar"
+        "-c:Nome do cluster Kind:awx-cluster-${PERFIL:-auto}"
+        "-p:Porta de acesso ao AWX:${DEFAULT_HOST_PORT}"
+        "-f:Forçar número de CPUs:auto-detectar"
+        "-m:Forçar quantidade de memória (MB):auto-detectar"
         "-d:Instalar apenas dependências:não"
         "-v:Modo verboso (debug):não"
         "-h:Exibir esta ajuda:N/A"
@@ -440,77 +420,33 @@ show_interactive_help() {
         local desc=$(echo $option | cut -d: -f2)
         local default=$(echo $option | cut -d: -f3)
         
-        echo -e "${CYAN}│ ${GREEN}${BOLD}${flag}${NC}${CYAN} │ ${desc}${NC}"
+        echo -e "${CYAN}│ ${GREEN}${flag}${NC}${CYAN} │ ${desc}${NC}"
         echo -e "${CYAN}│     ${DIM}Padrão: ${default}${NC}${CYAN}                                    │${NC}"
     done
     
-    echo -e "${CYAN}${BOLD}├─────────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│                    ${ROCKET} EXEMPLOS DE USO                       │${NC}"
-    echo -e "${CYAN}${BOLD}├─────────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${CYAN}│                                                             │${NC}"
-    echo -e "${CYAN}│ ${GREEN}${BOLD}1.${NC}${CYAN} Instalação padrão:                                 │${NC}"
-    echo -e "${CYAN}│    ${YELLOW}$0${NC}${CYAN}                                                   │${NC}"
-    echo -e "${CYAN}│                                                             │${NC}"
-    echo -e "${CYAN}│ ${GREEN}${BOLD}2.${NC}${CYAN} Cluster customizado na porta 8080:                │${NC}"
-    echo -e "${CYAN}│    ${YELLOW}$0 -c meu-cluster -p 8080${NC}${CYAN}                           │${NC}"
-    echo -e "${CYAN}│                                                             │${NC}"
-    echo -e "${CYAN}│ ${GREEN}${BOLD}3.${NC}${CYAN} Forçar recursos específicos:                       │${NC}"
-    echo -e "${CYAN}│    ${YELLOW}$0 -f 4 -m 8192${NC}${CYAN}                                     │${NC}"
-    echo -e "${CYAN}│                                                             │${NC}"
-    echo -e "${CYAN}│ ${GREEN}${BOLD}4.${NC}${CYAN} Apenas instalar dependências:                      │${NC}"
-    echo -e "${CYAN}│    ${YELLOW}$0 -d${NC}${CYAN}                                                │${NC}"
-    echo -e "${CYAN}│                                                             │${NC}"
     echo -e "${CYAN}${BOLD}╰─────────────────────────────────────────────────────────────╯${NC}"
     
-    echo ""
     show_system_requirements
     show_access_information
 }
 
 show_system_requirements() {
     echo -e "${PURPLE}${BOLD}╭─────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${PURPLE}${BOLD}│                   ${SHIELD} REQUISITOS DO SISTEMA                   │${NC}"
+    echo -e "${PURPLE}${BOLD}│                   🛡️ REQUISITOS DO SISTEMA                   │${NC}"
     echo -e "${PURPLE}${BOLD}├─────────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${PURPLE}│                                                             │${NC}"
-    echo -e "${PURPLE}│ ${GREEN}${BOLD}Sistema Operacional:${NC}${PURPLE}                               │${NC}"
-    echo -e "${PURPLE}│   ${CYAN}• Ubuntu 20.04+ (recomendado)${NC}${PURPLE}                       │${NC}"
-    echo -e "${PURPLE}│   ${CYAN}• Debian 11+ (suportado)${NC}${PURPLE}                            │${NC}"
-    echo -e "${PURPLE}│                                                             │${NC}"
-    echo -e "${PURPLE}│ ${GREEN}${BOLD}Recursos Mínimos (Desenvolvimento):${NC}${PURPLE}                │${NC}"
-    echo -e "${PURPLE}│   ${CYAN}• CPU: 2 cores${NC}${PURPLE}                                      │${NC}"
-    echo -e "${PURPLE}│   ${CYAN}• Memória: 4 GB RAM${NC}${PURPLE}                                │${NC}"
-    echo -e "${PURPLE}│   ${CYAN}• Armazenamento: 20 GB livres${NC}${PURPLE}                      │${NC}"
-    echo -e "${PURPLE}│                                                             │${NC}"
-    echo -e "${PURPLE}│ ${GREEN}${BOLD}Recursos Recomendados (Produção):${NC}${PURPLE}                  │${NC}"
-    echo -e "${PURPLE}│   ${CYAN}• CPU: 4+ cores${NC}${PURPLE}                                    │${NC}"
-    echo -e "${PURPLE}│   ${CYAN}• Memória: 8+ GB RAM${NC}${PURPLE}                              │${NC}"
-    echo -e "${PURPLE}│   ${CYAN}• Armazenamento: 50+ GB livres${NC}${PURPLE}                    │${NC}"
-    echo -e "${PURPLE}│                                                             │${NC}"
+    echo -e "${PURPLE}│ Sistema Operacional: Ubuntu 20.04+/Debian 11+                     │${NC}"
+    echo -e "${PURPLE}│ Desenvolvimento: 2 CPUs, 4GB RAM, 20GB SSD                        │${NC}"
+    echo -e "${PURPLE}│ Produção: 4+ CPUs, 8GB+ RAM, 50GB+ SSD                            │${NC}"
     echo -e "${PURPLE}${BOLD}╰─────────────────────────────────────────────────────────────╯${NC}"
 }
 
 show_access_information() {
     echo -e "${GREEN}${BOLD}╭─────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${GREEN}${BOLD}│                    ${KEY} INFORMAÇÕES DE ACESSO                    │${NC}"
+    echo -e "${GREEN}${BOLD}│                    🔑 INFORMAÇÕES DE ACESSO                  │${NC}"
     echo -e "${GREEN}${BOLD}├─────────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${GREEN}│                                                             │${NC}"
-    echo -e "${GREEN}│ ${YELLOW}${BOLD}Após a instalação:${NC}${GREEN}                                │${NC}"
-    echo -e "${GREEN}│                                                             │${NC}"
-    echo -e "${GREEN}│ ${CYAN}• URL:${NC}${GREEN} http://localhost:PORTA                           │${NC}"
-    echo -e "${GREEN}│ ${CYAN}• Usuário:${NC}${GREEN} admin                                       │${NC}"
-    echo -e "${GREEN}│ ${CYAN}• Senha:${NC}${GREEN} (será exibida no final)                      │${NC}"
-    echo -e "${GREEN}│                                                             │${NC}"
-    echo -e "${GREEN}│ ${YELLOW}${BOLD}Comandos úteis:${NC}${GREEN}                                    │${NC}"
-    echo -e "${GREEN}│                                                             │${NC}"
-    echo -e "${GREEN}│ ${CYAN}• Ver pods:${NC}${GREEN}                                           │${NC}"
-    echo -e "${GREEN}│   ${DIM}kubectl get pods -n awx${NC}${GREEN}                            │${NC}"
-    echo -e "${GREEN}│                                                             │${NC}"
-    echo -e "${GREEN}│ ${CYAN}• Ver logs:${NC}${GREEN}                                           │${NC}"
-    echo -e "${GREEN}│   ${DIM}kubectl logs -n awx deployment/awx-web${NC}${GREEN}             │${NC}"
-    echo -e "${GREEN}│                                                             │${NC}"
-    echo -e "${GREEN}│ ${CYAN}• Deletar cluster:${NC}${GREEN}                                    │${NC}"
-    echo -e "${GREEN}│   ${DIM}kind delete cluster --name CLUSTER_NAME${NC}${GREEN}            │${NC}"
-    echo -e "${GREEN}│                                                             │${NC}"
+    echo -e "${GREEN}│ URL: http://localhost:PORTA                                        │${NC}"
+    echo -e "${GREEN}│ Usuário: admin                                                     │${NC}"
+    echo -e "${GREEN}│ Senha: (exibida no final)                                          │${NC}"
     echo -e "${GREEN}${BOLD}╰─────────────────────────────────────────────────────────────╯${NC}"
 }
 
@@ -519,49 +455,144 @@ show_access_information() {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 detect_terminal_capabilities() {
-    # Detectar suporte a cores
-    local color_support="basic"
-    if [[ "$TERM" =~ 256color ]] || [[ "$COLORTERM" =~ (truecolor|24bit) ]]; then
-        color_support="256"
-    elif [[ "$COLORTERM" =~ (truecolor|24bit) ]]; then
-        color_support="truecolor"
+    export USE_UNICODE_ICONS=true
+    export USE_BOX_DRAWING=true
+    
+    if [[ "$LANG" != *"UTF-8"* ]] || [[ "$TERM" != *"xterm"* ]]; then
+        export USE_UNICODE_ICONS=false
+        export USE_BOX_DRAWING=false
     fi
-    
-    # Detectar suporte a Unicode
-    local unicode_support=false
-    if [[ "$LANG" =~ UTF-8 ]] || [[ "$LC_ALL" =~ UTF-8 ]] || [[ "$LC_CTYPE" =~ UTF-8 ]]; then
-        unicode_support=true
-    fi
-    
-    # Detectar largura do terminal
-    local terminal_width=$(tput cols 2>/dev/null || echo "80")
-    
-    # Definir configurações globais baseadas nas capacidades
-    if [ "$unicode_support" = true ]; then
-        USE_UNICODE_ICONS=true
-        USE_BOX_DRAWING=true
-    else
-        USE_UNICODE_ICONS=false
-        USE_BOX_DRAWING=false
-        # Fallback para caracteres ASCII
-        ICON_SUCCESS="[OK]"
-        ICON_ERROR="[ERR]"
-        ICON_WARNING="[WARN]"
-        ICON_INFO="[INFO]"
-    fi
-    
-    # Ajustar paleta de cores baseada no suporte
-    if [ "$color_support" = "basic" ]; then
-        # Usar apenas cores básicas ANSI
-        RED='\033[31m'
-        GREEN='\033[32m'
-        YELLOW='\033[33m'
-        BLUE='\033[34m'
-        PURPLE='\033[35m'
-        CYAN='\033[36m'
-        WHITE='\033[37m'
-    fi
-    
-    TERMINAL_WIDTH="$terminal_width"
-    export USE_UNICODE_ICONS USE_BOX_DRAWING TERMINAL_WIDTH
 }
+
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                            LÓGICA PRINCIPAL                                 ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+install_dependencies() {
+    log_step 1 7 "Instalando dependências do sistema"
+    
+    local packages=(
+        "docker.io docker docker-compose-plugin"
+        "curl"
+        "python3-pip"
+        "git"
+        "make"
+        "gcc"
+    )
+    
+    for pkg in "${packages[@]}"; do
+        log_info "Instalando pacote: ${pkg%% *}"
+        apt-get install -y $pkg > /dev/null 2>&1 &
+        show_spinner $! "Instalando ${pkg%% *}"
+    done
+}
+
+create_kind_cluster() {
+    local cluster_name="$1"
+    local host_port="$2"
+    
+    log_step 2 7 "Criando cluster Kind"
+    
+    cat <<EOF | kind create cluster --name "$cluster_name" --config=-
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: $host_port
+    protocol: TCP
+EOF
+}
+
+deploy_registry() {
+    log_step 3 7 "Configurando registro local"
+    
+    docker run -d --name "$REGISTRY_NAME" --restart=always -p "$DEFAULT_REGISTRY_PORT":5000 registry:2 > /dev/null &
+    show_spinner $! "Iniciando registro Docker"
+}
+
+build_cluster() {
+    local cluster_name="$1"
+    
+    log_step 4 7 "Construindo ambiente Kubernetes"
+    
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml > /dev/null &
+    show_spinner $! "Instalando Ingress Controller"
+    
+    kubectl wait --namespace ingress-nginx \
+        --for=condition=ready pod \
+        --selector=app.kubernetes.io/component=controller \
+        --timeout=90s > /dev/null
+}
+
+deploy_awx() {
+    log_step 5 7 "Implantando AWX"
+    
+    git clone https://github.com/ansible/awx-operator.git > /dev/null &
+    show_spinner $! "Clonando repositório AWX Operator"
+    
+    local AWX_OPERATOR_DIR="awx-operator"
+    local AWX_OPERATOR_TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
+    git checkout "$AWX_OPERATOR_TAG" > /dev/null
+    
+    kubectl create namespace "$AWX_NAMESPACE" > /dev/null
+    kubectl config set-context --current --namespace="$AWX_NAMESPACE" > /dev/null
+    
+    make deploy > /dev/null &
+    show_spinner $! "Compilando operador AWX"
+}
+
+retrieve_credentials() {
+    log_step 6 7 "Obtendo credenciais"
+    
+    local admin_password=$(kubectl get secret awx-admin-password -o jsonpath='{.data.password}' | base64 --decode)
+    
+    echo ""
+    create_box "CREDENCIAIS DE ACESSO" 60 "$GREEN"
+    echo -e "${CYAN}URL:${NC} http://localhost:$DEFAULT_HOST_PORT"
+    echo -e "${CYAN}Usuário:${NC} admin"
+    echo -e "${CYAN}Senha:${NC} ${admin_password}"
+    create_box "" 60 "$GREEN"
+}
+
+main() {
+    detect_terminal_capabilities
+    show_banner
+    
+    local CLUSTER_NAME="awx-cluster"
+    local HOST_PORT="$DEFAULT_HOST_PORT"
+    
+    while getopts "c:p:f:m:dvh" opt; do
+        case $opt in
+            c) CLUSTER_NAME="$OPTARG" ;;
+            p) HOST_PORT="$OPTARG" ;;
+            d) install_dependencies; exit 0 ;;
+            v) VERBOSE=true ;;
+            h) show_interactive_help; exit 0 ;;
+            *) log_error "Opção inválida"; exit 1 ;;
+        esac
+    done
+    
+    if ! validate_prerequisites; then
+        install_dependencies
+    fi
+    
+    create_kind_cluster "$CLUSTER_NAME" "$HOST_PORT"
+    deploy_registry
+    build_cluster "$CLUSTER_NAME"
+    deploy_awx
+    monitor_installation_progress "AWX" "$AWX_NAMESPACE" "$AWX_TIMEOUT"
+    show_cluster_status "$CLUSTER_NAME"
+    retrieve_credentials
+    
+    log_success "Implantação do AWX concluída com sucesso!"
+}
+
+main "$@"

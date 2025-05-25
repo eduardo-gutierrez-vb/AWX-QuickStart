@@ -860,7 +860,7 @@ requests-ntlm>=1.2.0
 pykerberos>=1.2.4; sys_platform != "win32"
 
 # SAP - usando versão estável conforme documentação
-pyrfc>=2.8.3;
+pyrfc=2.8.3;
 
 # Networking
 netaddr>=0.10.1

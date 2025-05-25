@@ -104,6 +104,53 @@ validate_memory() {
     return 0
 }
 
+# Adicione estas funções no início do script
+validate_environment() {
+    log_header "VERIFICAÇÃO DE AMBIENTE"
+    
+    # 1. Verificar porta obrigatoriamente
+    check_port_availability "$HOST_PORT"
+    
+    # 2. Verificar e remover clusters conflitantes
+    if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
+        log_warning "Removendo cluster existente '${CLUSTER_NAME}'..."
+        kind delete cluster --name "$CLUSTER_NAME"
+        sleep 15  # Tempo para limpeza completa
+    fi
+    
+    # 3. Limpar containers órfãos
+    docker rm -f $(docker ps -aq --filter "label=io.x-k8s.kind.cluster=${CLUSTER_NAME}") 2>/dev/null || true
+    
+    # 4. Verificar redes residuais
+    if docker network inspect kind >/dev/null 2>&1; then
+        log_info "Removendo rede kind residual..."
+        docker network rm kind
+    fi
+}
+
+check_port_availability() {
+    local port=$1
+    log_subheader "VERIFICANDO PORTA $port"
+    
+    # Verificar processos locais
+    local pid=$(lsof -t -i :$port)
+    if [ -n "$pid" ]; then
+        log_error "Conflito de porta detectado:"
+        lsof -i :$port
+        log_info "Execute para liberar: kill -9 $pid"
+        exit 1
+    fi
+    
+    # Verificar containers Docker
+    local container=$(docker ps --format '{{.Names}}' | grep ".*${port}->${port}/tcp")
+    if [ -n "$container" ]; then
+        log_error "Container Docker usando a porta:"
+        docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep "$port"
+        log_info "Execute para liberar: docker rm -f $container"
+        exit 1
+    fi
+}
+
 # ============================
 # DETECÇÃO DE RECURSOS
 # ============================
@@ -311,6 +358,8 @@ calculate_resources_with_feedback() {
     export MEM_MB=$total_mem_mb
     export PERFIL=$profile
 }
+
+
 
 # ============================
 # INICIALIZAÇÃO DE RECURSOS CORRIGIDA
@@ -621,7 +670,7 @@ start_local_registry() {
 
 create_kind_cluster() {
     log_header "CRIAÇÃO DO CLUSTER KIND"
-    
+    validate_environment
     # Verificar cluster existente
     if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
         log_warning "Cluster '$CLUSTER_NAME' já existe. Deletando..."

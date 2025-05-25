@@ -186,8 +186,9 @@ echo "pywinrm>=0.4.3" > requirements.txt
 # Arquivo execution-environment.yml com patch para repositórios
 cat <<EOF > execution-environment.yml
 version: 3
-base_image:
-  name: quay.io/ansible/awx-ee:24.6.1
+images:
+  base_image:
+    name: quay.io/ansible/awx-ee:24.6.1
 dependencies:
   galaxy: requirements.yml
   python: requirements.txt

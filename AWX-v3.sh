@@ -109,6 +109,18 @@ detect_mem_mb() {
     awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo
 }
 
+# Função para determinar perfil baseado nos recursos
+determine_profile() {
+    local cores=$1
+    local mem_mb=$2
+    
+    if [ "$cores" -ge 4 ] && [ "$mem_mb" -ge 8192 ]; then
+        echo "prod"
+    else
+        echo "dev"
+    fi
+}
+
 # Calcula recursos disponíveis considerando overhead do sistema
 calculate_available_resources() {
     local total_cores=$1
@@ -144,6 +156,47 @@ calculate_available_resources() {
     log_debug "Recursos alocados: CPU=$NODE_CPU, MEM=${NODE_MEM_MB}MB"
 }
 
+# Calcula réplicas baseado no perfil e recursos
+calculate_replicas() {
+    local profile=$1
+    local cores=$2
+    
+    if [ "$profile" = "prod" ]; then
+        WEB_REPLICAS=$((cores / 2))
+        TASK_REPLICAS=$((cores / 2))
+        # Mínimo de 1, máximo de 3 para cada
+        [ "$WEB_REPLICAS" -lt 1 ] && WEB_REPLICAS=1
+        [ "$TASK_REPLICAS" -lt 1 ] && TASK_REPLICAS=1
+        [ "$WEB_REPLICAS" -gt 3 ] && WEB_REPLICAS=3
+        [ "$TASK_REPLICAS" -gt 3 ] && TASK_REPLICAS=3
+    else
+        WEB_REPLICAS=1
+        TASK_REPLICAS=1
+    fi
+}
+
+# ============================
+# INICIALIZAÇÃO DE RECURSOS
+# ============================
+
+# Função para detectar recursos iniciais e definir perfil
+initialize_resources() {
+    # Detectar recursos (considerando valores forçados se existirem)
+    CORES=$(detect_cores)
+    MEM_MB=$(detect_mem_mb)
+    
+    # Determinar perfil baseado nos recursos
+    PERFIL=$(determine_profile "$CORES" "$MEM_MB")
+    
+    # Calcular réplicas baseado no perfil
+    calculate_replicas "$PERFIL" "$CORES"
+    
+    # Calcular recursos disponíveis
+    calculate_available_resources "$CORES" "$MEM_MB" "$PERFIL"
+    
+    log_debug "Recursos inicializados: PERFIL=$PERFIL, CORES=$CORES, MEM_MB=${MEM_MB}MB"
+}
+
 # ============================
 # FUNÇÃO DE AJUDA
 # ============================
@@ -156,7 +209,7 @@ ${WHITE}USO:${NC}
     $0 [OPÇÕES]
 
 ${WHITE}OPÇÕES:${NC}
-    ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: awx-cluster-${PERFIL})
+    ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: será calculado baseado no perfil)
     ${GREEN}-p PORTA${NC}     Porta do host para acessar AWX (padrão: 30080)
     ${GREEN}-f CPU${NC}       Forçar número de CPUs (ex: 4)
     ${GREEN}-m MEMORIA${NC}   Forçar quantidade de memória em MB (ex: 8192)
@@ -809,15 +862,21 @@ show_final_info() {
 # CONFIGURAÇÃO PADRÃO E PARSING
 # ============================
 
-# Valores padrão
-DEFAULT_CLUSTER_NAME="awx-cluster-"$PERFIL""
-DEFAULT_HOST_PORT=8080
+# Valores padrão que não dependem do perfil
+DEFAULT_HOST_PORT=30080
 INSTALL_DEPS_ONLY=false
 VERBOSE=false
 
 # Variáveis de recursos (pode forçar)
 FORCE_CPU=""
 FORCE_MEM_MB=""
+
+# Inicializar recursos ANTES do parsing das opções
+# para que possamos usar essas informações nas opções
+initialize_resources
+
+# Definir valores padrão que dependem do perfil
+DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
 
 # Parse das opções da linha de comando
 while getopts "c:p:f:m:dvh" opt; do
@@ -840,12 +899,18 @@ while getopts "c:p:f:m:dvh" opt; do
                 exit 1
             fi
             FORCE_CPU="$OPTARG"
+            # Recalcular recursos com valor forçado
+            initialize_resources
+            DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
             ;;
         m)
             if ! validate_memory "$OPTARG"; then
                 exit 1
             fi
             FORCE_MEM_MB="$OPTARG"
+            # Recalcular recursos com valor forçado
+            initialize_resources
+            DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
             ;;
         d)
             INSTALL_DEPS_ONLY=true
@@ -872,32 +937,10 @@ HOST_PORT=${HOST_PORT:-$DEFAULT_HOST_PORT}
 AWX_NAMESPACE="awx"
 
 # ============================
-# DETECÇÃO E CÁLCULO DE RECURSOS
+# EXECUÇÃO PRINCIPAL
 # ============================
 
-log_header "DETECÇÃO DE RECURSOS DO SISTEMA"
-
-CORES=$(detect_cores)
-MEM_MB=$(detect_mem_mb)
-
-# Definir perfil baseado nos recursos
-if [ "$CORES" -ge 4 ] && [ "$MEM_MB" -ge 8192 ]; then
-    PERFIL="prod"
-    WEB_REPLICAS=$((CORES / 2))
-    TASK_REPLICAS=$((CORES / 2))
-    # Mínimo de 1, máximo de 3 para cada
-    [ "$WEB_REPLICAS" -lt 1 ] && WEB_REPLICAS=1
-    [ "$TASK_REPLICAS" -lt 1 ] && TASK_REPLICAS=1
-    [ "$WEB_REPLICAS" -gt 3 ] && WEB_REPLICAS=3
-    [ "$TASK_REPLICAS" -gt 3 ] && TASK_REPLICAS=3
-else
-    PERFIL="dev"
-    WEB_REPLICAS=1
-    TASK_REPLICAS=1
-fi
-
-# Calcular recursos disponíveis
-calculate_available_resources "$CORES" "$MEM_MB" "$PERFIL"
+log_header "INICIANDO IMPLANTAÇÃO AWX"
 
 log_info "💻 Recursos do Sistema:"
 log_info "   CPUs: ${GREEN}$CORES${NC}"
@@ -906,11 +949,6 @@ log_info "   Perfil: ${GREEN}$PERFIL${NC}"
 log_info "   Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
 log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
 
-# ============================
-# EXECUÇÃO PRINCIPAL
-# ============================
-
-log_header "INICIANDO IMPLANTAÇÃO AWX"
 log_info "🎯 Configuração:"
 log_info "   Cluster: ${GREEN}$CLUSTER_NAME${NC}"
 log_info "   Porta: ${GREEN}$HOST_PORT${NC}"

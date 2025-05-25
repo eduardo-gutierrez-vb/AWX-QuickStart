@@ -5,980 +5,565 @@ set -e
 # CONFIGURAÇÕES AVANÇADAS DE UX
 # ============================
 
-# Configurações de interface
-ENABLE_COLORS=true
-ENABLE_ANIMATIONS=true
-ENABLE_SOUNDS=false
-PROGRESS_BAR_WIDTH=50
-ANIMATION_SPEED=0.1
+# Caracteres especiais e ícones (compatível com terminais básicos)
+ICON_SUCCESS="✅"
+ICON_ERROR="❌"
+ICON_WARNING="⚠️ "
+ICON_INFO="ℹ️ "
+ICON_LOADING="⏳"
+ICON_CONFIG="🔧"
+ICON_ROCKET="🚀"
+ICON_CPU="💻"
+ICON_MEMORY="🧠"
+ICON_NETWORK="🌐"
+ICON_DOCKER="🐳"
+ICON_KUBERNETES="☸️ "
 
-# Caracteres especiais para interface
-readonly CHECKMARK="✓"
-readonly CROSSMARK="✗"
-readonly ARROW="→"
-readonly WARNING="⚠"
-readonly INFO="ℹ"
-readonly GEAR="⚙"
-readonly ROCKET="🚀"
-readonly COMPUTER="💻"
-readonly WRENCH="🔧"
-readonly PACKAGE="📦"
-readonly DOWNLOAD="⬇"
-readonly UPLOAD="⬆"
-readonly HOURGLASS="⏳"
-readonly SUCCESS="🎉"
+# Cores aprimoradas
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+GRAY='\033[0;90m'
+BOLD='\033[1m'
+NC='\033[0m'
 
-# Cores avançadas
-if [[ $ENABLE_COLORS == true ]]; then
-    readonly RED='\033[0;31m'
-    readonly GREEN='\033[0;32m'
-    readonly YELLOW='\033[1;33m'
-    readonly BLUE='\033[0;34m'
-    readonly PURPLE='\033[0;35m'
-    readonly CYAN='\033[0;36m'
-    readonly WHITE='\033[1;37m'
-    readonly GRAY='\033[0;90m'
-    readonly BOLD='\033[1m'
-    readonly DIM='\033[2m'
-    readonly UNDERLINE='\033[4m'
-    readonly BLINK='\033[5m'
-    readonly REVERSE='\033[7m'
-    readonly NC='\033[0m'
+# Cores temáticas
+PRIMARY='\033[1;34m'    # Azul forte
+SECONDARY='\033[0;36m'  # Ciano
+SUCCESS='\033[1;32m'    # Verde forte
+DANGER='\033[1;31m'     # Vermelho forte
+WARNING='\033[1;33m'    # Amarelo forte
+INFO='\033[1;36m'       # Ciano forte
+
+# ============================
+# FUNÇÕES DE LOG APRIMORADAS
+# ============================
+
+log_info() {
+    echo -e "${INFO}${ICON_INFO}${NC}${BOLD}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${SUCCESS}${ICON_SUCCESS}${NC}${BOLD}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${WARNING}${ICON_WARNING}${NC}${BOLD}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${DANGER}${ICON_ERROR}${NC}${BOLD}[ERROR]${NC} $1"
+}
+
+log_debug() {
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${GRAY}[DEBUG]${NC} $1"
+    fi
+}
+
+log_header() {
+    local title="$1"
+    local icon="${2:-🎯}"
+    echo ""
+    echo -e "${PRIMARY}╔═══════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${PRIMARY}║${NC} ${icon} ${BOLD}${WHITE}$title${NC}${PRIMARY} ║${NC}"
+    echo -e "${PRIMARY}╚═══════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+log_section() {
+    echo ""
+    echo -e "${SECONDARY}▶${NC} ${BOLD}$1${NC}"
+    echo -e "${GRAY}────────────────────────────────────────────────${NC}"
+}
+
+# Barra de progresso visual
+show_progress() {
+    local current=$1
+    local total=$2
+    local message="$3"
+    local width=50
+    local percentage=$((current * 100 / total))
+    local filled=$((current * width / total))
     
-    # Cores de fundo
-    readonly BG_RED='\033[41m'
-    readonly BG_GREEN='\033[42m'
-    readonly BG_YELLOW='\033[43m'
-    readonly BG_BLUE='\033[44m'
-    readonly BG_PURPLE='\033[45m'
-    readonly BG_CYAN='\033[46m'
-    readonly BG_WHITE='\033[47m'
-else
-    readonly RED=''
-    readonly GREEN=''
-    readonly YELLOW=''
-    readonly BLUE=''
-    readonly PURPLE=''
-    readonly CYAN=''
-    readonly WHITE=''
-    readonly GRAY=''
-    readonly BOLD=''
-    readonly DIM=''
-    readonly UNDERLINE=''
-    readonly BLINK=''
-    readonly REVERSE=''
-    readonly NC=''
-    readonly BG_RED=''
-    readonly BG_GREEN=''
-    readonly BG_YELLOW=''
-    readonly BG_BLUE=''
-    readonly BG_PURPLE=''
-    readonly BG_CYAN=''
-    readonly BG_WHITE=''
-fi
-
-# ============================
-# FUNÇÕES DE INTERFACE AVANÇADA
-# ============================
+    printf "\r${INFO}${ICON_LOADING}${NC} ${BOLD}%s${NC} [" "$message"
+    
+    for ((i=0; i<filled; i++)); do
+        printf "${SUCCESS}█${NC}"
+    done
+    
+    for ((i=filled; i<width; i++)); do
+        printf "${GRAY}░${NC}"
+    done
+    
+    printf "] ${BOLD}%d%%${NC}" "$percentage"
+    
+    if [ "$current" -eq "$total" ]; then
+        echo " ${SUCCESS}${ICON_SUCCESS}${NC}"
+    fi
+}
 
 # Spinner animado para operações longas
 show_spinner() {
     local pid=$1
-    local message=$2
-    local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local message="$2"
+    local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
     local i=0
     
-    echo -n "${BLUE}${HOURGLASS} ${message}${NC} "
-    
     while kill -0 $pid 2>/dev/null; do
-        if [[ $ENABLE_ANIMATIONS == true ]]; then
-            i=$(( (i+1) %10 ))
-            printf "\b${YELLOW}${spin:$i:1}${NC}"
-            sleep $ANIMATION_SPEED
-        else
-            printf "."
-            sleep 0.5
-        fi
+        printf "\r${INFO}%s${NC} ${BOLD}%s${NC}" "${chars:i++%${#chars}:1}" "$message"
+        sleep 0.1
     done
-    
-    wait $pid
-    local exit_code=$?
-    
-    if [ $exit_code -eq 0 ]; then
-        printf "\b${GREEN}${CHECKMARK}${NC}\n"
-    else
-        printf "\b${RED}${CROSSMARK}${NC}\n"
-    fi
-    
-    return $exit_code
+    printf "\r${SUCCESS}${ICON_SUCCESS}${NC} ${BOLD}%s${NC} - Concluído!\n" "$message"
 }
 
-# Barra de progresso avançada
-show_progress_bar() {
-    local current=$1
-    local total=$2
-    local message=$3
-    local percent=$((current * 100 / total))
-    local filled=$((current * PROGRESS_BAR_WIDTH / total))
-    local empty=$((PROGRESS_BAR_WIDTH - filled))
-    
-    local bar=""
-    for ((i=0; i<filled; i++)); do
-        bar+="█"
-    done
-    for ((i=0; i<empty; i++)); do
-        bar+="░"
-    done
-    
-    printf "\r${BLUE}${message}${NC} [${GREEN}${bar}${NC}] ${BOLD}${percent}%%${NC} (${current}/${total})"
-    
-    if [ $current -eq $total ]; then
-        echo -e " ${GREEN}${CHECKMARK}${NC}"
-    fi
-}
+# ============================
+# SISTEMA DE MENU INTERATIVO
+# ============================
 
-# Box decorativo para mensagens importantes
-draw_box() {
-    local message="$1"
-    local color="${2:-$CYAN}"
-    local width=$(( ${#message} + 4 ))
-    
-    echo -e "${color}╭$(printf '─%.0s' $(seq 1 $((width-2))))╮${NC}"
-    echo -e "${color}│ ${BOLD}${message}${NC}${color} │${NC}"
-    echo -e "${color}╰$(printf '─%.0s' $(seq 1 $((width-2))))╯${NC}"
-}
-
-# Banner principal do sistema
-show_banner() {
+show_welcome() {
     clear
-    echo -e "${BOLD}${BLUE}"
+    echo -e "${PRIMARY}"
     cat << 'EOF'
-    ╔══════════════════════════════════════════════════════════════════════╗
-    ║                                                                      ║
-    ║      █████╗ ██╗    ██╗██╗  ██╗    ██████╗ ███████╗██████╗ ██╗      ██╗║
-    ║     ██╔══██╗██║    ██║╚██╗██╔╝    ██╔══██╗██╔════╝██╔══██╗██║     ██╔╝║
-    ║     ███████║██║ █╗ ██║ ╚███╔╝     ██║  ██║█████╗  ██████╔╝██║    ██╔╝ ║
-    ║     ██╔══██║██║███╗██║ ██╔██╗     ██║  ██║██╔══╝  ██╔═══╝ ██║   ██╔╝  ║
-    ║     ██║  ██║╚███╔███╔╝██╔╝ ██╗    ██████╔╝███████╗██║     ███████╔╝   ║
-    ║     ╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═╝    ╚═════╝ ╚══════╝╚═╝     ╚══════╝    ║
-    ║                                                                      ║
-    ║              🚀 Sistema Avançado de Implantação AWX 🚀              ║
-    ║                                                                      ║
-    ╚══════════════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                                                                               ║
+║                     🚀 INSTALADOR AWX AUTOMATIZADO 🚀                       ║
+║                                                                               ║
+║                    Versão Avançada com Interface Melhorada                   ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
 EOF
     echo -e "${NC}"
-    echo -e "${GRAY}${DIM}                        Versão 2.0 - Interface Moderna${NC}"
-    echo
+    echo ""
+    echo -e "${INFO}Bem-vindo ao instalador AWX automatizado!${NC}"
+    echo -e "${GRAY}Este script irá configurar um ambiente AWX completo usando Kind + Kubernetes${NC}"
+    echo ""
 }
 
-# Menu principal interativo
 show_main_menu() {
-    while true; do
-        show_banner
-        
-        echo -e "${BOLD}${CYAN}🎯 Escolha o modo de operação:${NC}\n"
-        
-        PS3="${BLUE}${ARROW} Digite sua escolha (1-4): ${NC}"
-        
-        local options=(
-            "${ROCKET} Detecção Automática Completa (Recomendado)"
-            "${WRENCH} Configuração Manual Assistida"
-            "${GEAR} Modo Avançado (Especialistas)"
-            "${CROSSMARK} Sair"
-        )
-        
-        select opt in "${options[@]}"; do
-            case $REPLY in
-                1)
-                    echo -e "\n${GREEN}${CHECKMARK} Modo automático selecionado${NC}"
-                    AUTO_MODE=true
-                    MANUAL_MODE=false
-                    return 0
-                    ;;
-                2)
-                    echo -e "\n${YELLOW}${WRENCH} Modo manual selecionado${NC}"
-                    AUTO_MODE=false
-                    MANUAL_MODE=true
-                    return 0
-                    ;;
-                3)
-                    echo -e "\n${PURPLE}${GEAR} Modo avançado selecionado${NC}"
-                    AUTO_MODE=false
-                    MANUAL_MODE=false
-                    show_advanced_menu
-                    return $?
-                    ;;
-                4)
-                    echo -e "\n${RED}${CROSSMARK} Saindo...${NC}"
-                    exit 0
-                    ;;
-                *)
-                    echo -e "\n${RED}${WARNING} Opção inválida. Tente novamente.${NC}\n"
-                    sleep 1
-                    break
-                    ;;
-            esac
-        done
-    done
+    echo -e "${BOLD}${WHITE}Escolha o modo de instalação:${NC}"
+    echo ""
+    echo -e "${SUCCESS}1.${NC} ${BOLD}Automático${NC} - Detectar recursos automaticamente (Recomendado)"
+    echo -e "${WARNING}2.${NC} ${BOLD}Manual${NC} - Configurar recursos manualmente"
+    echo -e "${INFO}3.${NC} ${BOLD}Apenas Dependências${NC} - Instalar somente as dependências"
+    echo -e "${SECONDARY}4.${NC} ${BOLD}Ajuda${NC} - Exibir documentação completa"
+    echo -e "${GRAY}5.${NC} ${BOLD}Sair${NC}"
+    echo ""
+    echo -ne "${PRIMARY}${ICON_CONFIG} Escolha uma opção [1-5]:${NC} "
 }
 
-# Menu avançado para especialistas
-show_advanced_menu() {
-    while true; do
-        clear
-        draw_box "CONFIGURAÇÕES AVANÇADAS" "$PURPLE"
-        echo
-        
-        PS3="${PURPLE}${ARROW} Escolha uma opção: ${NC}"
-        
-        local advanced_options=(
-            "${DOWNLOAD} Instalar apenas dependências"
-            "${COMPUTER} Forçar recursos específicos"
-            "${PACKAGE} Configurar registry personalizado"
-            "${WRENCH} Configurações de cluster personalizadas"
-            "${ARROW} Voltar ao menu principal"
-        )
-        
-        select opt in "${advanced_options[@]}"; do
-            case $REPLY in
-                1)
-                    echo -e "\n${BLUE}${INFO} Instalando apenas dependências...${NC}"
-                    INSTALL_DEPS_ONLY=true
-                    return 0
-                    ;;
-                2)
-                    configure_resources_manually
-                    return 0
-                    ;;
-                3)
-                    configure_custom_registry
-                    return 0
-                    ;;
-                4)
-                    configure_cluster_settings
-                    return 0
-                    ;;
-                5)
-                    return 1
-                    ;;
-                *)
-                    echo -e "\n${RED}${WARNING} Opção inválida.${NC}"
-                    sleep 1
-                    break
-                    ;;
-            esac
-        done
-    done
+read_user_choice() {
+    local choice
+    read -r choice
+    echo "$choice"
 }
 
-# Configuração manual de recursos
-configure_resources_manually() {
-    clear
-    draw_box "CONFIGURAÇÃO MANUAL DE RECURSOS" "$YELLOW"
-    echo
+# Menu de configuração manual
+show_manual_config_menu() {
+    log_header "Configuração Manual de Recursos" "⚙️"
     
-    # CPU Configuration
-    while true; do
-        echo -e "${COMPUTER} ${BOLD}Configuração de CPU:${NC}"
-        echo -e "${GRAY}CPUs detectadas automaticamente: ${GREEN}$(nproc --all)${NC}"
-        echo -ne "${BLUE}Digite o número de CPUs para usar (1-64) ou Enter para auto: ${NC}"
-        read -r cpu_input
-        
-        if [[ -z "$cpu_input" ]]; then
-            echo -e "${GREEN}${CHECKMARK} Usando detecção automática de CPU${NC}"
-            break
-        elif validate_cpu "$cpu_input"; then
-            FORCE_CPU="$cpu_input"
-            echo -e "${GREEN}${CHECKMARK} CPU configurada para: ${BOLD}$cpu_input${NC}"
-            break
-        else
-            echo -e "${RED}${CROSSMARK} Valor inválido. Tente novamente.${NC}\n"
-        fi
-    done
+    echo -e "${BOLD}${WHITE}Configure os recursos do seu ambiente:${NC}"
+    echo ""
     
-    echo
+    # CPU
+    echo -e "${SUCCESS}${ICON_CPU} CPU:${NC}"
+    echo -e "  ${GRAY}• Mínimo recomendado: 2 cores${NC}"
+    echo -e "  ${GRAY}• Produção: 4+ cores${NC}"
+    echo -e "  ${GRAY}• Detectado no sistema: ${BOLD}$(nproc --all)${NC} cores${NC}"
+    echo -ne "  ${PRIMARY}Quantos cores usar? [padrão: auto]:${NC} "
+    read -r manual_cpu
     
-    # Memory Configuration
-    while true; do
-        echo -e "${COMPUTER} ${BOLD}Configuração de Memória:${NC}"
-        local auto_mem=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
-        echo -e "${GRAY}Memória detectada automaticamente: ${GREEN}${auto_mem}MB${NC}"
-        echo -ne "${BLUE}Digite a quantidade de memória em MB (512-131072) ou Enter para auto: ${NC}"
-        read -r mem_input
-        
-        if [[ -z "$mem_input" ]]; then
-            echo -e "${GREEN}${CHECKMARK} Usando detecção automática de memória${NC}"
-            break
-        elif validate_memory "$mem_input"; then
-            FORCE_MEM_MB="$mem_input"
-            echo -e "${GREEN}${CHECKMARK} Memória configurada para: ${BOLD}${mem_input}MB${NC}"
-            break
-        else
-            echo -e "${RED}${CROSSMARK} Valor inválido. Tente novamente.${NC}\n"
-        fi
-    done
+    echo ""
     
-    echo
+    # Memória
+    echo -e "${SUCCESS}${ICON_MEMORY} Memória:${NC}"
+    echo -e "  ${GRAY}• Mínimo recomendado: 4GB (4096MB)${NC}"
+    echo -e "  ${GRAY}• Produção: 8GB+ (8192MB)${NC}"
+    echo -e "  ${GRAY}• Detectado no sistema: ${BOLD}$(detect_mem_mb)${NC} MB${NC}"
+    echo -ne "  ${PRIMARY}Quanta memória usar (em MB)? [padrão: auto]:${NC} "
+    read -r manual_memory
     
-    # Port Configuration
-    while true; do
-        echo -e "${COMPUTER} ${BOLD}Configuração de Porta:${NC}"
-        echo -e "${GRAY}Porta padrão: ${GREEN}8080${NC}"
-        echo -ne "${BLUE}Digite a porta para o AWX (1-65535) ou Enter para padrão: ${NC}"
-        read -r port_input
-        
-        if [[ -z "$port_input" ]]; then
-            HOST_PORT=8080
-            echo -e "${GREEN}${CHECKMARK} Usando porta padrão: ${BOLD}8080${NC}"
-            break
-        elif validate_port "$port_input"; then
-            HOST_PORT="$port_input"
-            echo -e "${GREEN}${CHECKMARK} Porta configurada para: ${BOLD}$port_input${NC}"
-            break
-        else
-            echo -e "${RED}${CROSSMARK} Porta inválida. Tente novamente.${NC}\n"
-        fi
-    done
+    echo ""
     
-    echo
+    # Porta
+    echo -e "${SUCCESS}${ICON_NETWORK} Rede:${NC}"
+    echo -e "  ${GRAY}• Porta padrão: 8080${NC}"
+    echo -e "  ${GRAY}• Faixa válida: 1-65535${NC}"
+    echo -ne "  ${PRIMARY}Porta para acesso ao AWX? [padrão: 8080]:${NC} "
+    read -r manual_port
     
-    # Cluster Name Configuration
-    while true; do
-        echo -e "${COMPUTER} ${BOLD}Nome do Cluster:${NC}"
-        echo -ne "${BLUE}Digite o nome do cluster ou Enter para automático: ${NC}"
-        read -r cluster_input
-        
-        if [[ -z "$cluster_input" ]]; then
-            echo -e "${GREEN}${CHECKMARK} Nome será gerado automaticamente${NC}"
-            break
-        elif [[ "$cluster_input" =~ ^[a-z0-9-]+$ ]]; then
-            CLUSTER_NAME="$cluster_input"
-            echo -e "${GREEN}${CHECKMARK} Cluster configurado: ${BOLD}$cluster_input${NC}"
-            break
-        else
-            echo -e "${RED}${CROSSMARK} Nome inválido. Use apenas letras minúsculas, números e hífens.${NC}\n"
-        fi
-    done
+    echo ""
     
-    echo
-    echo -e "${GREEN}${SUCCESS} Configuração manual concluída!${NC}"
-    echo -e "${BLUE}Pressione Enter para continuar...${NC}"
-    read -r
+    # Nome do cluster
+    echo -e "${SUCCESS}${ICON_KUBERNETES} Kubernetes:${NC}"
+    echo -e "  ${GRAY}• Nome padrão será gerado automaticamente${NC}"
+    echo -ne "  ${PRIMARY}Nome do cluster Kind? [padrão: auto]:${NC} "
+    read -r manual_cluster
     
-    AUTO_MODE=false
-    MANUAL_MODE=true
-}
-
-# Configuração de registry personalizado
-configure_custom_registry() {
-    clear
-    draw_box "CONFIGURAÇÃO DE REGISTRY PERSONALIZADO" "$CYAN"
-    echo
-    
-    echo -e "${INFO} ${BOLD}Registry Docker Personalizado${NC}"
-    echo -e "${GRAY}Deixe em branco para usar o registry local padrão (localhost:5001)${NC}"
-    echo
-    
-    echo -ne "${BLUE}Registry URL: ${NC}"
-    read -r registry_url
-    
-    if [[ -n "$registry_url" ]]; then
-        CUSTOM_REGISTRY="$registry_url"
-        echo -e "${GREEN}${CHECKMARK} Registry personalizado configurado: ${BOLD}$registry_url${NC}"
-    else
-        echo -e "${GREEN}${CHECKMARK} Usando registry local padrão${NC}"
-    fi
-    
-    echo
-    echo -e "${BLUE}Pressione Enter para continuar...${NC}"
-    read -r
-}
-
-# Configuração de cluster personalizada
-configure_cluster_settings() {
-    clear
-    draw_box "CONFIGURAÇÕES AVANÇADAS DO CLUSTER" "$PURPLE"
-    echo
-    
-    echo -e "${GEAR} ${BOLD}Configurações do Kubernetes${NC}"
-    echo
-    
-    # Número de nós worker
-    while true; do
-        echo -e "${BLUE}Número de nós worker (0-5): ${NC}"
-        echo -e "${GRAY}0 = Apenas control-plane, 1-5 = Adicionar workers${NC}"
-        echo -ne "${ARROW} "
-        read -r worker_nodes
-        
-        if [[ "$worker_nodes" =~ ^[0-5]$ ]]; then
-            WORKER_NODES="$worker_nodes"
-            echo -e "${GREEN}${CHECKMARK} Configurado para $worker_nodes nó(s) worker${NC}"
-            break
-        else
-            echo -e "${RED}${CROSSMARK} Número inválido. Use 0-5.${NC}\n"
-        fi
-    done
-    
-    echo
-    
-    # Versão do Kubernetes
-    echo -e "${BLUE}Versão do Kubernetes (ou Enter para padrão):${NC}"
-    echo -ne "${ARROW} "
-    read -r k8s_version
-    
-    if [[ -n "$k8s_version" ]]; then
-        K8S_VERSION="$k8s_version"
-        echo -e "${GREEN}${CHECKMARK} Versão do Kubernetes: ${BOLD}$k8s_version${NC}"
-    else
-        echo -e "${GREEN}${CHECKMARK} Usando versão padrão do Kind${NC}"
-    fi
-    
-    echo
-    echo -e "${BLUE}Pressione Enter para continuar...${NC}"
-    read -r
-}
-
-# Confirmação com detalhes da configuração
-show_configuration_summary() {
-    clear
-    draw_box "RESUMO DA CONFIGURAÇÃO" "$GREEN"
-    echo
-    
-    echo -e "${INFO} ${BOLD}Configurações que serão aplicadas:${NC}\n"
-    
-    if [[ $AUTO_MODE == true ]]; then
-        echo -e "${COMPUTER} ${BOLD}Modo:${NC} Detecção Automática"
-        echo -e "${COMPUTER} ${BOLD}CPUs:${NC} ${GREEN}$(detect_cores)${NC} (detectado)"
-        echo -e "${COMPUTER} ${BOLD}Memória:${NC} ${GREEN}$(detect_mem_mb)MB${NC} (detectado)"
-    else
-        echo -e "${COMPUTER} ${BOLD}Modo:${NC} Configuração Manual"
-        echo -e "${COMPUTER} ${BOLD}CPUs:${NC} ${GREEN}${FORCE_CPU:-$(detect_cores)}${NC}"
-        echo -e "${COMPUTER} ${BOLD}Memória:${NC} ${GREEN}${FORCE_MEM_MB:-$(detect_mem_mb)}MB${NC}"
-    fi
-    
-    echo -e "${COMPUTER} ${BOLD}Porta:${NC} ${GREEN}${HOST_PORT:-8080}${NC}"
-    echo -e "${COMPUTER} ${BOLD}Cluster:${NC} ${GREEN}${CLUSTER_NAME:-"Auto-gerado"}${NC}"
-    echo -e "${COMPUTER} ${BOLD}Namespace:${NC} ${GREEN}${AWX_NAMESPACE:-awx}${NC}"
-    
-    if [[ -n "$CUSTOM_REGISTRY" ]]; then
-        echo -e "${COMPUTER} ${BOLD}Registry:${NC} ${GREEN}$CUSTOM_REGISTRY${NC}"
-    fi
-    
-    if [[ -n "$WORKER_NODES" ]]; then
-        echo -e "${COMPUTER} ${BOLD}Worker Nodes:${NC} ${GREEN}$WORKER_NODES${NC}"
-    fi
-    
-    echo
-    
-    while true; do
-        echo -e "${YELLOW}${WARNING} Deseja prosseguir com esta configuração? (s/N): ${NC}"
-        read -r confirmation
-        
-        case "$confirmation" in
-            [sS]|[sS][iI][mM])
-                echo -e "${GREEN}${CHECKMARK} Confirmado! Iniciando instalação...${NC}"
-                return 0
-                ;;
-            [nN]|[nN][aA][oO]|"")
-                echo -e "${RED}${CROSSMARK} Instalação cancelada pelo usuário.${NC}"
-                return 1
-                ;;
-            *)
-                echo -e "${RED}${WARNING} Resposta inválida. Digite 's' para sim ou 'n' para não.${NC}\n"
-                ;;
-        esac
-    done
+    # Aplicar configurações manuais
+    [ -n "$manual_cpu" ] && FORCE_CPU="$manual_cpu"
+    [ -n "$manual_memory" ] && FORCE_MEM_MB="$manual_memory"
+    [ -n "$manual_port" ] && HOST_PORT="$manual_port"
+    [ -n "$manual_cluster" ] && CLUSTER_NAME="$manual_cluster"
 }
 
 # ============================
-# FUNÇÕES DE LOG AVANÇADAS
+# CÁLCULOS AVANÇADOS DE RECURSOS
 # ============================
 
-# Sistema de log com múltiplos níveis
-log_with_level() {
-    local level="$1"
-    local message="$2"
-    local timestamp=$(date '+%H:%M:%S')
+# Especificações baseadas nas recomendações oficiais do AWX e Kubernetes
+AWX_MIN_CPU_CORES=2
+AWX_MIN_MEMORY_MB=4096
+AWX_PROD_CPU_CORES=4
+AWX_PROD_MEMORY_MB=8192
+
+# Overhead do sistema e Kubernetes (percentuais)
+SYSTEM_CPU_OVERHEAD=20    # 20% reservado para SO
+K8S_CPU_OVERHEAD=10       # 10% reservado para Kubernetes
+SYSTEM_MEMORY_OVERHEAD=15 # 15% reservado para SO
+K8S_MEMORY_OVERHEAD=10    # 10% reservado para Kubernetes
+
+# Função avançada para detectar e calcular recursos
+advanced_resource_detection() {
+    local total_cores=$(detect_cores)
+    local total_memory_mb=$(detect_mem_mb)
     
-    case "$level" in
-        "DEBUG")
-            if [[ $VERBOSE == true ]]; then
-                echo -e "${GRAY}[${timestamp}]${PURPLE}[DEBUG]${NC} ${DIM}${message}${NC}"
-            fi
+    log_section "Análise Detalhada de Recursos"
+    
+    # Calcular overhead do sistema
+    local system_cpu_reserve=$((total_cores * SYSTEM_CPU_OVERHEAD / 100))
+    local k8s_cpu_reserve=$((total_cores * K8S_CPU_OVERHEAD / 100))
+    local system_memory_reserve=$((total_memory_mb * SYSTEM_MEMORY_OVERHEAD / 100))
+    local k8s_memory_reserve=$((total_memory_mb * K8S_MEMORY_OVERHEAD / 100))
+    
+    # Garantir mínimos
+    [ "$system_cpu_reserve" -lt 1 ] && system_cpu_reserve=1
+    [ "$k8s_cpu_reserve" -lt 1 ] && k8s_cpu_reserve=1
+    [ "$system_memory_reserve" -lt 512 ] && system_memory_reserve=512
+    [ "$k8s_memory_reserve" -lt 256 ] && k8s_memory_reserve=256
+    
+    # Calcular recursos disponíveis para AWX
+    local available_cpu=$((total_cores - system_cpu_reserve - k8s_cpu_reserve))
+    local available_memory=$((total_memory_mb - system_memory_reserve - k8s_memory_reserve))
+    
+    # Determinar perfil baseado em recursos disponíveis e requisitos do AWX
+    if [ "$available_cpu" -ge "$AWX_PROD_CPU_CORES" ] && [ "$available_memory" -ge "$AWX_PROD_MEMORY_MB" ]; then
+        PERFIL="prod"
+        ENVIRONMENT_TYPE="Produção"
+    elif [ "$available_cpu" -ge "$AWX_MIN_CPU_CORES" ] && [ "$available_memory" -ge "$AWX_MIN_MEMORY_MB" ]; then
+        PERFIL="staging"
+        ENVIRONMENT_TYPE="Homologação"
+    else
+        PERFIL="dev"
+        ENVIRONMENT_TYPE="Desenvolvimento"
+    fi
+    
+    # Calcular recursos específicos para pods AWX
+    calculate_awx_pod_resources "$available_cpu" "$available_memory"
+    
+    # Calcular réplicas baseado no perfil e recursos
+    calculate_optimal_replicas "$available_cpu" "$PERFIL"
+    
+    # Armazenar valores calculados
+    TOTAL_CPU="$total_cores"
+    TOTAL_MEMORY_MB="$total_memory_mb"
+    AVAILABLE_CPU="$available_cpu"
+    AVAILABLE_MEMORY_MB="$available_memory"
+    SYSTEM_CPU_RESERVE="$system_cpu_reserve"
+    SYSTEM_MEMORY_RESERVE_MB="$system_memory_reserve"
+    K8S_CPU_RESERVE="$k8s_cpu_reserve"
+    K8S_MEMORY_RESERVE_MB="$k8s_memory_reserve"
+    
+    log_debug "Recursos totais: CPU=$total_cores, MEM=${total_memory_mb}MB"
+    log_debug "Reserva sistema: CPU=$system_cpu_reserve, MEM=${system_memory_reserve}MB"
+    log_debug "Reserva K8s: CPU=$k8s_cpu_reserve, MEM=${k8s_memory_reserve}MB"
+    log_debug "Disponível AWX: CPU=$available_cpu, MEM=${available_memory}MB"
+    log_debug "Perfil determinado: $PERFIL ($ENVIRONMENT_TYPE)"
+}
+
+# Calcular recursos específicos para pods AWX baseado em best practices
+calculate_awx_pod_resources() {
+    local available_cpu=$1
+    local available_memory=$2
+    
+    # Cálculos baseados nas recomendações da Red Hat/AWX
+    case "$PERFIL" in
+        "prod")
+            # Produção: distribuir recursos de forma conservadora
+            AWX_WEB_CPU_REQUEST="200m"
+            AWX_WEB_CPU_LIMIT="2000m"
+            AWX_WEB_MEMORY_REQUEST="512Mi"
+            AWX_WEB_MEMORY_LIMIT="2Gi"
+            
+            AWX_TASK_CPU_REQUEST="500m"
+            AWX_TASK_CPU_LIMIT="4000m"
+            AWX_TASK_MEMORY_REQUEST="1Gi"
+            AWX_TASK_MEMORY_LIMIT="4Gi"
+            
+            AWX_POSTGRES_CPU_REQUEST="100m"
+            AWX_POSTGRES_CPU_LIMIT="1000m"
+            AWX_POSTGRES_MEMORY_REQUEST="256Mi"
+            AWX_POSTGRES_MEMORY_LIMIT="1Gi"
             ;;
-        "INFO")
-            echo -e "${GRAY}[${timestamp}]${BLUE}[INFO]${NC} ${message}"
+        "staging")
+            # Homologação: recursos médios
+            AWX_WEB_CPU_REQUEST="100m"
+            AWX_WEB_CPU_LIMIT="1000m"
+            AWX_WEB_MEMORY_REQUEST="256Mi"
+            AWX_WEB_MEMORY_LIMIT="1Gi"
+            
+            AWX_TASK_CPU_REQUEST="200m"
+            AWX_TASK_CPU_LIMIT="2000m"
+            AWX_TASK_MEMORY_REQUEST="512Mi"
+            AWX_TASK_MEMORY_LIMIT="2Gi"
+            
+            AWX_POSTGRES_CPU_REQUEST="50m"
+            AWX_POSTGRES_CPU_LIMIT="500m"
+            AWX_POSTGRES_MEMORY_REQUEST="128Mi"
+            AWX_POSTGRES_MEMORY_LIMIT="512Mi"
             ;;
-        "SUCCESS")
-            echo -e "${GRAY}[${timestamp}]${GREEN}[SUCCESS]${NC} ${GREEN}${CHECKMARK} ${message}${NC}"
-            ;;
-        "WARNING")
-            echo -e "${GRAY}[${timestamp}]${YELLOW}[WARNING]${NC} ${YELLOW}${WARNING} ${message}${NC}"
-            ;;
-        "ERROR")
-            echo -e "${GRAY}[${timestamp}]${RED}[ERROR]${NC} ${RED}${CROSSMARK} ${message}${NC}"
-            ;;
-        "HEADER")
-            echo
-            echo -e "${CYAN}╭─$(printf '─%.0s' $(seq 1 ${#message}))─╮${NC}"
-            echo -e "${CYAN}│ ${BOLD}${WHITE}${message}${NC}${CYAN} │${NC}"
-            echo -e "${CYAN}╰─$(printf '─%.0s' $(seq 1 ${#message}))─╯${NC}"
-            echo
+        "dev")
+            # Desenvolvimento: recursos mínimos
+            AWX_WEB_CPU_REQUEST="50m"
+            AWX_WEB_CPU_LIMIT="500m"
+            AWX_WEB_MEMORY_REQUEST="128Mi"
+            AWX_WEB_MEMORY_LIMIT="512Mi"
+            
+            AWX_TASK_CPU_REQUEST="100m"
+            AWX_TASK_CPU_LIMIT="1000m"
+            AWX_TASK_MEMORY_REQUEST="256Mi"
+            AWX_TASK_MEMORY_LIMIT="1Gi"
+            
+            AWX_POSTGRES_CPU_REQUEST="25m"
+            AWX_POSTGRES_CPU_LIMIT="250m"
+            AWX_POSTGRES_MEMORY_REQUEST="64Mi"
+            AWX_POSTGRES_MEMORY_LIMIT="256Mi"
             ;;
     esac
 }
 
-# Aliases para backward compatibility com funções originais
-log_info() { log_with_level "INFO" "$1"; }
-log_success() { log_with_level "SUCCESS" "$1"; }
-log_warning() { log_with_level "WARNING" "$1"; }
-log_error() { log_with_level "ERROR" "$1"; }
-log_debug() { log_with_level "DEBUG" "$1"; }
-log_header() { log_with_level "HEADER" "$1"; }
-
-# ============================
-# FUNÇÕES DE VALIDAÇÃO APRIMORADAS
-# ============================
-
-# Função para verificar se comando existe
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# Função para verificar se usuário está no grupo docker
-user_in_docker_group() {
-    groups | grep -q docker
-}
-
-# Função para validar número
-is_number() {
-    [[ $1 =~ ^[0-9]+$ ]]
-}
-
-# Função para validar porta com verificação de disponibilidade
-validate_port() {
-    if ! is_number "$1" || [ "$1" -lt 1 ] || [ "$1" -gt 65535 ]; then
-        log_error "Porta inválida: $1. Use um valor entre 1 e 65535."
-        return 1
-    fi
+# Calcular réplicas otimizadas
+calculate_optimal_replicas() {
+    local available_cpu=$1
+    local profile=$2
     
-    # Verificar se a porta está em uso
-    if netstat -ln 2>/dev/null | grep -q ":$1 "; then
-        log_warning "Porta $1 parece estar em uso. Deseja continuar? (s/N)"
-        read -r continue_anyway
-        if [[ ! "$continue_anyway" =~ ^[sS]$ ]]; then
-            return 1
-        fi
-    fi
-    
-    return 0
-}
-
-# Função para validar CPU
-validate_cpu() {
-    if ! is_number "$1" || [ "$1" -lt 1 ] || [ "$1" -gt 64 ]; then
-        log_error "CPU inválida: $1. Use um valor entre 1 e 64."
-        return 1
-    fi
-    
-    local max_cpu=$(nproc --all)
-    if [ "$1" -gt "$max_cpu" ]; then
-        log_warning "CPU solicitada ($1) é maior que a disponível ($max_cpu). Continuar? (s/N)"
-        read -r continue_anyway
-        if [[ ! "$continue_anyway" =~ ^[sS]$ ]]; then
-            return 1
-        fi
-    fi
-    
-    return 0
-}
-
-# Função para validar memória
-validate_memory() {
-    if ! is_number "$1" || [ "$1" -lt 512 ] || [ "$1" -gt 131072 ]; then
-        log_error "Memória inválida: $1. Use um valor entre 512 MB e 131072 MB (128 GB)."
-        return 1
-    fi
-    
-    local max_mem=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
-    if [ "$1" -gt "$max_mem" ]; then
-        log_warning "Memória solicitada ($1 MB) é maior que a disponível ($max_mem MB). Continuar? (s/N)"
-        read -r continue_anyway
-        if [[ ! "$continue_anyway" =~ ^[sS]$ ]]; then
-            return 1
-        fi
-    fi
-    
-    return 0
+    case "$profile" in
+        "prod")
+            # Produção: múltiplas réplicas para alta disponibilidade
+            if [ "$available_cpu" -ge 8 ]; then
+                WEB_REPLICAS=3
+                TASK_REPLICAS=2
+            elif [ "$available_cpu" -ge 6 ]; then
+                WEB_REPLICAS=2
+                TASK_REPLICAS=2
+            else
+                WEB_REPLICAS=2
+                TASK_REPLICAS=1
+            fi
+            ;;
+        "staging")
+            # Homologação: réplicas moderadas
+            if [ "$available_cpu" -ge 4 ]; then
+                WEB_REPLICAS=2
+                TASK_REPLICAS=1
+            else
+                WEB_REPLICAS=1
+                TASK_REPLICAS=1
+            fi
+            ;;
+        "dev")
+            # Desenvolvimento: única réplica
+            WEB_REPLICAS=1
+            TASK_REPLICAS=1
+            ;;
+    esac
 }
 
 # ============================
-# DETECÇÃO DE RECURSOS (ORIGINAL)
+# FUNÇÃO DE EXIBIÇÃO DE RECURSOS
 # ============================
 
-detect_cores() {
-    if [ -n "$FORCE_CPU" ]; then 
-        echo "$FORCE_CPU"
-        return
-    fi
-    nproc --all
-}
-
-detect_mem_mb() {
-    if [ -n "$FORCE_MEM_MB" ]; then 
-        echo "$FORCE_MEM_MB"
-        return
-    fi
-    awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo
-}
-
-determine_profile() {
-    local cores=$1
-    local mem_mb=$2
+show_resource_summary() {
+    log_header "Resumo da Configuração de Recursos" "📊"
     
-    if [ "$cores" -ge 4 ] && [ "$mem_mb" -ge 8192 ]; then
-        echo "prod"
+    # Tabela de recursos do sistema
+    echo -e "${BOLD}${WHITE}RECURSOS DO SISTEMA:${NC}"
+    echo -e "${GRAY}┌─────────────────────┬──────────────┬──────────────┬──────────────┐${NC}"
+    echo -e "${GRAY}│${NC} ${BOLD}Componente${NC}          ${GRAY}│${NC} ${BOLD}Total${NC}        ${GRAY}│${NC} ${BOLD}Reservado${NC}    ${GRAY}│${NC} ${BOLD}Disponível${NC}   ${GRAY}│${NC}"
+    echo -e "${GRAY}├─────────────────────┼──────────────┼──────────────┼──────────────┤${NC}"
+    echo -e "${GRAY}│${NC} ${ICON_CPU} CPU (cores)      ${GRAY}│${NC} ${GREEN}$(printf "%12s" "$TOTAL_CPU")${NC} ${GRAY}│${NC} ${YELLOW}$(printf "%12s" "$((SYSTEM_CPU_RESERVE + K8S_CPU_RESERVE))")${NC} ${GRAY}│${NC} ${SUCCESS}$(printf "%12s" "$AVAILABLE_CPU")${NC} ${GRAY}│${NC}"
+    echo -e "${GRAY}│${NC} ${ICON_MEMORY} Memória (MB)    ${GRAY}│${NC} ${GREEN}$(printf "%12s" "$TOTAL_MEMORY_MB")${NC} ${GRAY}│${NC} ${YELLOW}$(printf "%12s" "$((SYSTEM_MEMORY_RESERVE_MB + K8S_MEMORY_RESERVE_MB))")${NC} ${GRAY}│${NC} ${SUCCESS}$(printf "%12s" "$AVAILABLE_MEMORY_MB")${NC} ${GRAY}│${NC}"
+    echo -e "${GRAY}└─────────────────────┴──────────────┴──────────────┴──────────────┘${NC}"
+    
+    echo ""
+    
+    # Configuração do AWX
+    echo -e "${BOLD}${WHITE}CONFIGURAÇÃO AWX:${NC}"
+    echo -e "${GRAY}┌─────────────────────┬──────────────┬──────────────┬──────────────┐${NC}"
+    echo -e "${GRAY}│${NC} ${BOLD}Perfil${NC}              ${GRAY}│${NC} ${BOLD}Tipo${NC}         ${GRAY}│${NC} ${BOLD}Web Réplicas${NC} ${GRAY}│${NC} ${BOLD}Task Réplicas${NC}${GRAY}│${NC}"
+    echo -e "${GRAY}├─────────────────────┼──────────────┼──────────────┼──────────────┤${NC}"
+    echo -e "${GRAY}│${NC} ${SUCCESS}$(printf "%-19s" "$PERFIL")${NC} ${GRAY}│${NC} ${INFO}$(printf "%-12s" "$ENVIRONMENT_TYPE")${NC} ${GRAY}│${NC} ${PRIMARY}$(printf "%12s" "$WEB_REPLICAS")${NC} ${GRAY}│${NC} ${PRIMARY}$(printf "%12s" "$TASK_REPLICAS")${NC} ${GRAY}│${NC}"
+    echo -e "${GRAY}└─────────────────────┴──────────────┴──────────────┴──────────────┘${NC}"
+    
+    echo ""
+    
+    # Recursos por pod
+    echo -e "${BOLD}${WHITE}RECURSOS POR POD:${NC}"
+    echo -e "${GRAY}┌─────────────────┬──────────────┬──────────────┬──────────────┬──────────────┐${NC}"
+    echo -e "${GRAY}│${NC} ${BOLD}Componente${NC}      ${GRAY}│${NC} ${BOLD}CPU Request${NC}  ${GRAY}│${NC} ${BOLD}CPU Limit${NC}    ${GRAY}│${NC} ${BOLD}Mem Request${NC}  ${GRAY}│${NC} ${BOLD}Mem Limit${NC}    ${GRAY}│${NC}"
+    echo -e "${GRAY}├─────────────────┼──────────────┼──────────────┼──────────────┼──────────────┤${NC}"
+    echo -e "${GRAY}│${NC} AWX Web         ${GRAY}│${NC} ${CYAN}$(printf "%12s" "$AWX_WEB_CPU_REQUEST")${NC} ${GRAY}│${NC} ${CYAN}$(printf "%12s" "$AWX_WEB_CPU_LIMIT")${NC} ${GRAY}│${NC} ${PURPLE}$(printf "%12s" "$AWX_WEB_MEMORY_REQUEST")${NC} ${GRAY}│${NC} ${PURPLE}$(printf "%12s" "$AWX_WEB_MEMORY_LIMIT")${NC} ${GRAY}│${NC}"
+    echo -e "${GRAY}│${NC} AWX Task        ${GRAY}│${NC} ${CYAN}$(printf "%12s" "$AWX_TASK_CPU_REQUEST")${NC} ${GRAY}│${NC} ${CYAN}$(printf "%12s" "$AWX_TASK_CPU_LIMIT")${NC} ${GRAY}│${NC} ${PURPLE}$(printf "%12s" "$AWX_TASK_MEMORY_REQUEST")${NC} ${GRAY}│${NC} ${PURPLE}$(printf "%12s" "$AWX_TASK_MEMORY_LIMIT")${NC} ${GRAY}│${NC}"
+    echo -e "${GRAY}│${NC} PostgreSQL      ${GRAY}│${NC} ${CYAN}$(printf "%12s" "$AWX_POSTGRES_CPU_REQUEST")${NC} ${GRAY}│${NC} ${CYAN}$(printf "%12s" "$AWX_POSTGRES_CPU_LIMIT")${NC} ${GRAY}│${NC} ${PURPLE}$(printf "%12s" "$AWX_POSTGRES_MEMORY_REQUEST")${NC} ${GRAY}│${NC} ${PURPLE}$(printf "%12s" "$AWX_POSTGRES_MEMORY_LIMIT")${NC} ${GRAY}│${NC}"
+    echo -e "${GRAY}└─────────────────┴──────────────┴──────────────┴──────────────┴──────────────┘${NC}"
+    
+    echo ""
+    
+    # Informações de acesso
+    echo -e "${BOLD}${WHITE}CONFIGURAÇÕES DE ACESSO:${NC}"
+    echo -e "  ${ICON_KUBERNETES} ${BOLD}Cluster:${NC} ${SUCCESS}$CLUSTER_NAME${NC}"
+    echo -e "  ${ICON_NETWORK} ${BOLD}Porta:${NC} ${SUCCESS}$HOST_PORT${NC}"
+    echo -e "  ${ICON_CONFIG} ${BOLD}Namespace:${NC} ${SUCCESS}$AWX_NAMESPACE${NC}"
+    
+    echo ""
+    echo -e "${WARNING}${ICON_WARNING}${NC} ${BOLD}Verificações:${NC}"
+    
+    # Validações de recursos
+    if [ "$AVAILABLE_CPU" -lt "$AWX_MIN_CPU_CORES" ]; then
+        echo -e "  ${DANGER}${ICON_ERROR} CPU insuficiente (mínimo: ${AWX_MIN_CPU_CORES} cores)${NC}"
     else
-        echo "dev"
+        echo -e "  ${SUCCESS}${ICON_SUCCESS} CPU adequada${NC}"
     fi
-}
-
-calculate_available_resources() {
-    local total_cores=$1
-    local total_mem_mb=$2
-    local profile=$3
     
-    local system_cpu_reserve=1
-    local system_mem_reserve_mb=1024
-    
-    local available_cores=$((total_cores - system_cpu_reserve))
-    local available_mem_mb=$((total_mem_mb - system_mem_reserve_mb))
-    
-    if [ "$profile" = "prod" ]; then
-        NODE_CPU=$((available_cores * 70 / 100))
-        NODE_MEM_MB=$((available_mem_mb * 70 / 100))
+    if [ "$AVAILABLE_MEMORY_MB" -lt "$AWX_MIN_MEMORY_MB" ]; then
+        echo -e "  ${DANGER}${ICON_ERROR} Memória insuficiente (mínimo: ${AWX_MIN_MEMORY_MB}MB)${NC}"
     else
-        NODE_CPU=$((available_cores * 80 / 100))
-        NODE_MEM_MB=$((available_mem_mb * 80 / 100))
+        echo -e "  ${SUCCESS}${ICON_SUCCESS} Memória adequada${NC}"
     fi
     
-    [ "$NODE_CPU" -lt 1 ] && NODE_CPU=1
-    [ "$NODE_MEM_MB" -lt 512 ] && NODE_MEM_MB=512
+    echo ""
+    echo -ne "${PRIMARY}${ICON_CONFIG} Continuar com esta configuração? [S/n]:${NC} "
+    read -r confirm
     
-    log_debug "Recursos totais: CPU=$total_cores, MEM=${total_mem_mb}MB"
-    log_debug "Recursos sistema: CPU=$system_cpu_reserve, MEM=${system_mem_reserve_mb}MB"
-    log_debug "Recursos disponíveis: CPU=$available_cores, MEM=${available_mem_mb}MB"
-    log_debug "Recursos alocados: CPU=$NODE_CPU, MEM=${NODE_MEM_MB}MB"
-}
-
-calculate_replicas() {
-    local profile=$1
-    local cores=$2
-    
-    if [ "$profile" = "prod" ]; then
-        WEB_REPLICAS=$((cores / 2))
-        TASK_REPLICAS=$((cores / 2))
-        [ "$WEB_REPLICAS" -lt 1 ] && WEB_REPLICAS=1
-        [ "$TASK_REPLICAS" -lt 1 ] && TASK_REPLICAS=1
-        [ "$WEB_REPLICAS" -gt 3 ] && WEB_REPLICAS=3
-        [ "$TASK_REPLICAS" -gt 3 ] && TASK_REPLICAS=3
-    else
-        WEB_REPLICAS=1
-        TASK_REPLICAS=1
+    if [[ "$confirm" =~ ^[Nn]$ ]]; then
+        log_warning "Instalação cancelada pelo usuário"
+        exit 0
     fi
 }
 
-initialize_resources() {
-    CORES=$(detect_cores)
-    MEM_MB=$(detect_mem_mb)
-    PERFIL=$(determine_profile "$CORES" "$MEM_MB")
-    calculate_replicas "$PERFIL" "$CORES"
-    calculate_available_resources "$CORES" "$MEM_MB" "$PERFIL"
-    log_debug "Recursos inicializados: PERFIL=$PERFIL, CORES=$CORES, MEM_MB=${MEM_MB}MB"
-}
-
 # ============================
-# FUNÇÃO DE AJUDA APRIMORADA
+# MELHORIAS NAS FUNÇÕES EXISTENTES
 # ============================
 
-show_help() {
-    clear
-    show_banner
-    
-    cat << EOF
-${WHITE}USO:${NC}
-    $0 [OPÇÕES]
-
-${WHITE}OPÇÕES:${NC}
-    ${GREEN}-c NOME${NC}      Nome do cluster Kind
-    ${GREEN}-p PORTA${NC}     Porta do host para acessar AWX (padrão: 8080)
-    ${GREEN}-f CPU${NC}       Forçar número de CPUs
-    ${GREEN}-m MEMORIA${NC}   Forçar quantidade de memória em MB
-    ${GREEN}-d${NC}           Instalar apenas dependências
-    ${GREEN}-v${NC}           Modo verboso (debug)
-    ${GREEN}-s${NC}           Modo silencioso (automação)
-    ${GREEN}-i${NC}           Modo interativo (padrão)
-    ${GREEN}-h${NC}           Exibir esta ajuda
-
-${WHITE}MODOS DE OPERAÇÃO:${NC}
-    ${ROCKET} ${BOLD}Interativo${NC}     Interface moderna com menus (padrão)
-    ${GEAR} ${BOLD}Automático${NC}      Detecção automática de recursos
-    ${WRENCH} ${BOLD}Manual${NC}         Configuração assistida passo a passo
-    ${COMPUTER} ${BOLD}Silencioso${NC}     Para scripts e automação
-
-${WHITE}EXEMPLOS:${NC}
-    $0                                    # Interface interativa moderna
-    $0 -s -c meu-cluster -p 8080         # Modo silencioso
-    $0 -v -f 4 -m 8192                   # Verboso com recursos forçados
-    $0 -d                                # Instalar apenas dependências
-    $0 -i                                # Forçar modo interativo
-
-${WHITE}RECURSOS DETECTADOS AUTOMATICAMENTE:${NC}
-    ${COMPUTER} CPUs: ${GREEN}$(detect_cores)${NC}
-    ${COMPUTER} Memória: ${GREEN}$(detect_mem_mb)MB${NC}
-    ${COMPUTER} Perfil Sugerido: ${GREEN}$(determine_profile "$(detect_cores)" "$(detect_mem_mb)")${NC}
-
-EOF
-}
-
-# ============================
-# INSTALAÇÃO DE DEPENDÊNCIAS COM PROGRESSO
-# ============================
-
+# Função melhorada de instalação de dependências com progresso
 install_dependencies() {
-    log_header "VERIFICAÇÃO E INSTALAÇÃO DE DEPENDÊNCIAS"
+    log_header "Instalação e Verificação de Dependências" "📦"
     
-    local total_steps=8
-    local current_step=0
+    local dependencies=("sistema" "python39" "docker" "kind" "kubectl" "helm" "ansible")
+    local total=${#dependencies[@]}
+    local current=0
     
-    echo -e "${INFO} Verificando compatibilidade do sistema..."
+    # Verificar Ubuntu
     if [[ ! -f /etc/os-release ]] || ! grep -q "Ubuntu" /etc/os-release; then
-        log_warning "Este script foi testado apenas no Ubuntu. Prosseguindo mesmo assim..."
+        log_warning "Este script foi testado apenas no Ubuntu. Prosseguindo..."
     fi
     
-    current_step=$((current_step + 1))
-    show_progress_bar $current_step $total_steps "Atualizando sistema"
+    for dep in "${dependencies[@]}"; do
+        case "$dep" in
+            "sistema")
+                show_progress $((++current)) $total "Atualizando sistema"
+                {
+                    sudo apt-get update -qq
+                    sudo apt-get upgrade -y
+                    sudo apt-get install -y python3 python3-pip python3-venv git curl wget \
+                        ca-certificates gnupg2 lsb-release build-essential \
+                        software-properties-common apt-transport-https
+                } > /dev/null 2>&1
+                ;;
+            "python39")
+                show_progress $((++current)) $total "Instalando Python 3.9"
+                install_python39 > /dev/null 2>&1
+                ;;
+            "docker")
+                show_progress $((++current)) $total "Instalando Docker"
+                install_docker > /dev/null 2>&1
+                ;;
+            "kind")
+                show_progress $((++current)) $total "Instalando Kind"
+                install_kind > /dev/null 2>&1
+                ;;
+            "kubectl")
+                show_progress $((++current)) $total "Instalando kubectl"
+                install_kubectl > /dev/null 2>&1
+                ;;
+            "helm")
+                show_progress $((++current)) $total "Instalando Helm"
+                install_helm > /dev/null 2>&1
+                ;;
+            "ansible")
+                show_progress $((++current)) $total "Instalando Ansible"
+                install_ansible_tools > /dev/null 2>&1
+                ;;
+        esac
+    done
     
-    (
-        sudo apt-get update -qq
-        sudo apt-get upgrade -y >/dev/null 2>&1
-    ) &
-    show_spinner $! "Atualizando repositórios e sistema"
-    
-    current_step=$((current_step + 1))
-    show_progress_bar $current_step $total_steps "Instalando dependências básicas"
-    
-    (
-        sudo apt-get install -y \
-            python3 python3-pip python3-venv git curl wget \
-            ca-certificates gnupg2 lsb-release build-essential \
-            software-properties-common apt-transport-https >/dev/null 2>&1
-    ) &
-    show_spinner $! "Instalando pacotes básicos"
-    
-    current_step=$((current_step + 1))
-    show_progress_bar $current_step $total_steps "Instalando Python 3.9"
-    install_python39
-    
-    current_step=$((current_step + 1))
-    show_progress_bar $current_step $total_steps "Instalando Docker"
-    install_docker
-    
-    current_step=$((current_step + 1))
-    show_progress_bar $current_step $total_steps "Instalando Kind"
-    install_kind
-    
-    current_step=$((current_step + 1))
-    show_progress_bar $current_step $total_steps "Instalando kubectl"
-    install_kubectl
-    
-    current_step=$((current_step + 1))
-    show_progress_bar $current_step $total_steps "Instalando Helm"
-    install_helm
-    
-    current_step=$((current_step + 1))
-    show_progress_bar $current_step $total_steps "Configurando Ansible"
-    install_ansible_tools
-    
-    echo -e "\n${SUCCESS} Verificando instalações..."
     check_docker_running
     start_local_registry
     
-    log_success "Todas as dependências foram instaladas e verificadas!"
+    log_success "Todas as dependências foram instaladas!"
 }
 
-install_python39() {
-    if command_exists python3.9; then
-        log_info "Python 3.9 já está instalado: $(python3.9 --version)"
-        return 0
-    fi
-    
-    (
-        sudo add-apt-repository ppa:deadsnakes/ppa -y >/dev/null 2>&1
-        sudo apt-get update -qq
-        sudo apt-get install -y python3.9 python3.9-venv python3.9-distutils python3.9-dev >/dev/null 2>&1
-        curl -s https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-        sudo python3.9 /tmp/get-pip.py >/dev/null 2>&1
-        rm /tmp/get-pip.py
-    ) &
-    show_spinner $! "Instalando Python 3.9"
-    
-    log_success "Python 3.9 instalado: $(python3.9 --version)"
-}
-
-install_docker() {
-    if command_exists docker; then
-        log_info "Docker já está instalado: $(docker --version)"
-        if ! user_in_docker_group; then
-            log_warning "Adicionando usuário ao grupo docker..."
-            sudo usermod -aG docker $USER
-        fi
-        return 0
-    fi
-
-    (
-        sudo apt-get remove -y docker docker-engine docker.io containerd runc >/dev/null 2>&1 || true
-        sudo apt-get install -y ca-certificates curl >/dev/null 2>&1
-        sudo install -m 0755 -d /etc/apt/keyrings
-        sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-        sudo chmod a+r /etc/apt/keyrings/docker.asc
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-        sudo apt-get update -qq
-        sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1
-        sudo usermod -aG docker $USER
-        sudo systemctl start docker
-        sudo systemctl enable docker
-    ) &
-    show_spinner $! "Instalando Docker"
-    
-    log_success "Docker instalado com sucesso!"
-    log_warning "Execute 'newgrp docker' ou faça logout/login para ativar as permissões"
-}
-
-install_kind() {
-    if command_exists kind; then
-        log_info "Kind já está instalado: $(kind version)"
-        return 0
-    fi
-
-    (
-        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
-        chmod +x ./kind
-        sudo mv ./kind /usr/local/bin/kind
-    ) &
-    show_spinner $! "Instalando Kind"
-    
-    log_success "Kind instalado: $(kind version)"
-}
-
-install_kubectl() {
-    if command_exists kubectl; then
-        log_info "kubectl já está instalado"
-        return 0
-    fi
-
-    (
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-        sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-        rm kubectl
-    ) &
-    show_spinner $! "Instalando kubectl"
-    
-    log_success "kubectl instalado com sucesso"
-}
-
-install_helm() {
-    if command_exists helm; then
-        log_info "Helm já está instalado: $(helm version --short)"
-        return 0
-    fi
-
-    (
-        curl -fsSL https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg >/dev/null
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list >/dev/null
-        sudo apt-get update -qq
-        sudo apt-get install -y helm >/dev/null 2>&1
-    ) &
-    show_spinner $! "Instalando Helm"
-    
-    log_success "Helm instalado: $(helm version --short)"
-}
-
-install_ansible_tools() {
-    if [ -d "$HOME/ansible-ee-venv" ]; then
-        log_info "Ambiente virtual Ansible já existe"
-        source "$HOME/ansible-ee-venv/bin/activate"
-    else
-        (
-            python3.9 -m venv "$HOME/ansible-ee-venv"
-            source "$HOME/ansible-ee-venv/bin/activate"
-            pip install --upgrade pip >/dev/null 2>&1
-            pip install "ansible>=7.0.0" "ansible-builder>=3.0.0" >/dev/null 2>&1
-        ) &
-        show_spinner $! "Criando ambiente virtual Ansible"
-    fi
-    
-    log_success "Ansible configurado com sucesso"
-}
-
-check_docker_running() {
-    if ! docker info >/dev/null 2>&1; then
-        if ! user_in_docker_group; then
-            log_error "Execute: newgrp docker"
-            exit 1
-        fi
-        
-        if ! systemctl is-active --quiet docker; then
-            sudo systemctl start docker
-            sleep 5
-        fi
-        
-        if ! docker info >/dev/null 2>&1; then
-            log_error "Erro ao conectar com Docker"
-            exit 1
-        fi
-    fi
-    log_success "Docker funcionando corretamente"
-}
-
-start_local_registry() {
-    if docker ps | grep -q kind-registry; then
-        log_info "Registry local já está rodando"
-        return 0
-    fi
-    
-    (
-        docker run -d --restart=always -p 5001:5000 --name kind-registry registry:2 >/dev/null 2>&1
-        if docker network ls | grep -q kind; then
-            docker network connect kind kind-registry 2>/dev/null || true
-        fi
-    ) &
-    show_spinner $! "Iniciando registry local"
-    
-    log_success "Registry local ativo em localhost:5001"
-}
-
-# ============================
-# CRIAÇÃO DO CLUSTER COM PROGRESSO
-# ============================
-
+# Função melhorada de criação do cluster com feedback visual
 create_kind_cluster() {
-    log_header "CRIAÇÃO DO CLUSTER KIND"
+    log_header "Criação do Cluster Kubernetes" "☸️"
     
     if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
-        log_warning "Cluster '$CLUSTER_NAME' já existe"
-        echo -ne "${YELLOW}Deseja deletá-lo e recriar? (s/N): ${NC}"
-        read -r recreate
-        if [[ "$recreate" =~ ^[sS]$ ]]; then
-            (kind delete cluster --name "$CLUSTER_NAME") &
-            show_spinner $! "Deletando cluster existente"
-        else
-            log_error "Operação cancelada"
-            exit 1
-        fi
+        log_warning "Cluster '$CLUSTER_NAME' já existe. Recriando..."
+        kind delete cluster --name "$CLUSTER_NAME"
     fi
     
-    log_info "Criando configuração do cluster..."
+    log_info "Criando cluster '$CLUSTER_NAME' com configuração otimizada..."
+    
+    # Criar configuração do cluster baseada no perfil
+    create_cluster_config
+    
+    # Criar cluster com spinner
+    (kind create cluster --name "$CLUSTER_NAME" --config /tmp/kind-config.yaml > /dev/null 2>&1) &
+    show_spinner $! "Criando cluster Kubernetes"
+    
+    rm /tmp/kind-config.yaml
+    
+    log_info "Aguardando cluster estar pronto..."
+    kubectl wait --for=condition=Ready nodes --all --timeout=300s
+    
+    setup_local_registry
+    
+    log_success "Cluster criado e configurado!"
+}
+
+# Configuração otimizada do cluster baseada no perfil
+create_cluster_config() {
+    local worker_nodes=""
+    
+    # Adicionar workers para produção
+    if [ "$PERFIL" = "prod" ] && [ "$AVAILABLE_CPU" -ge 6 ]; then
+        worker_nodes='
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    maxPods: 110
+    systemReserved:
+      cpu: "100m"
+      memory: "128Mi"
+    kubeReserved:
+      cpu: "100m"
+      memory: "128Mi"'
+    fi
     
     cat > /tmp/kind-config.yaml << EOF
 kind: Cluster
@@ -995,174 +580,29 @@ nodes:
     apiServer:
         extraArgs:
           enable-aggregator-routing: "true"
+          max-requests-inflight: "400"
+          max-mutating-requests-inflight: "200"
   - |
     kind: KubeletConfiguration
     maxPods: 110
+    systemReserved:
+      cpu: "100m"
+      memory: "128Mi"
+    kubeReserved:
+      cpu: "100m"
+      memory: "128Mi"
+    evictionHard:
+      memory.available: "100Mi"
+      nodefs.available: "10%"${worker_nodes}
 EOF
-
-    if [ "$PERFIL" = "prod" ] && [ "$CORES" -ge 6 ]; then
-        log_info "Adicionando nó worker para ambiente de produção"
-        cat >> /tmp/kind-config.yaml << EOF
-- role: worker
-  kubeadmConfigPatches:
-  - |
-    kind: KubeletConfiguration
-    maxPods: 110
-EOF
-    fi
-    
-    (kind create cluster --name "$CLUSTER_NAME" --config /tmp/kind-config.yaml) &
-    show_spinner $! "Criando cluster Kubernetes"
-    rm /tmp/kind-config.yaml
-    
-    log_success "Cluster criado com sucesso!"
-    
-    (kubectl wait --for=condition=Ready nodes --all --timeout=300s) &
-    show_spinner $! "Aguardando cluster ficar pronto"
-    
-    if ! docker network ls | grep -q kind; then
-        docker network create kind >/dev/null 2>&1
-    fi
-    docker network connect kind kind-registry 2>/dev/null || true
-    
-    kubectl apply -f - << EOF >/dev/null 2>&1
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: local-registry-hosting
-  namespace: kube-public
-data:
-  localRegistryHosting.v1: |
-    host: "localhost:5001"
-    help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
-EOF
-
-    log_success "Cluster configurado e conectado ao registry local"
 }
 
 # ============================
-# EXECUTION ENVIRONMENT COM PROGRESSO
+# CRIAÇÃO AWX COM RECURSOS CALCULADOS
 # ============================
-
-create_execution_environment() {
-    log_header "CRIAÇÃO DO EXECUTION ENVIRONMENT"
-    
-    source "$HOME/ansible-ee-venv/bin/activate"
-    
-    EE_DIR="/tmp/awx-ee-$$"
-    mkdir -p "$EE_DIR"
-    cd "$EE_DIR"
-    
-    log_info "Preparando arquivos de configuração..."
-    
-    cat > requirements.yml << EOF
-collections:
-  - name: community.windows
-    version: ">=1.12.0"
-  - name: ansible.windows
-    version: ">=1.14.0"
-  - name: microsoft.ad
-    version: ">=1.3.0"
-  - name: community.general
-    version: ">=6.0.0"
-  - name: community.crypto
-    version: ">=2.10.0"
-  - name: kubernetes.core
-    version: ">=2.4.0"
-EOF
-
-    cat > requirements.txt << EOF
-pywinrm>=0.4.3
-requests>=2.28.0
-kubernetes>=24.2.0
-pyyaml>=6.0
-jinja2>=3.1.0
-cryptography>=3.4.8
-EOF
-
-    cat > execution-environment.yml << EOF
----
-version: 3
-images:
-  base_image:
-    name: quay.io/ansible/awx-ee:24.6.1
-dependencies:
-  galaxy: requirements.yml
-  python: requirements.txt
-additional_build_steps:
-  prepend_base:
-    - RUN dnf clean all || yum clean all || true
-    - RUN dnf makecache || yum makecache || true
-    - RUN dnf update -y || yum update -y || true
-  append_final:
-    - RUN ansible-galaxy collection list
-    - RUN pip list
-EOF
-
-    if [ "$VERBOSE" = true ]; then
-        (ansible-builder build -t localhost:5001/awx-custom-ee:latest -f execution-environment.yml --verbosity 2) &
-    else
-        (ansible-builder build -t localhost:5001/awx-custom-ee:latest -f execution-environment.yml >/dev/null 2>&1) &
-    fi
-    show_spinner $! "Construindo Execution Environment personalizado"
-    
-    (docker push localhost:5001/awx-custom-ee:latest >/dev/null 2>&1) &
-    show_spinner $! "Enviando imagem para registry local"
-    
-    cd /
-    rm -rf "$EE_DIR"
-    
-    log_success "Execution Environment criado e publicado"
-}
-
-# ============================
-# INSTALAÇÃO DO AWX COM PROGRESSO
-# ============================
-
-install_awx() {
-    log_header "INSTALAÇÃO DO AWX OPERATOR"
-    
-    (
-        helm repo add awx-operator https://ansible-community.github.io/awx-operator-helm/ >/dev/null 2>&1 || true
-        helm repo update >/dev/null 2>&1
-    ) &
-    show_spinner $! "Atualizando repositórios Helm"
-    
-    kubectl create namespace "$AWX_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
-    
-    (
-        helm upgrade --install awx-operator awx-operator/awx-operator \
-            -n "$AWX_NAMESPACE" \
-            --create-namespace \
-            --wait \
-            --timeout=10m >/dev/null 2>&1
-    ) &
-    show_spinner $! "Instalando AWX Operator"
-    
-    log_success "AWX Operator instalado com sucesso!"
-    
-    create_awx_instance
-}
 
 create_awx_instance() {
-    log_info "Criando instância AWX personalizada..."
-    
-    local awx_web_cpu_req="100m"
-    local awx_web_mem_req="128Mi"
-    local awx_web_cpu_lim="1000m"
-    local awx_web_mem_lim="2Gi"
-    
-    local awx_task_cpu_req="100m"
-    local awx_task_mem_req="128Mi"
-    local awx_task_cpu_lim="2000m"
-    local awx_task_mem_lim="2Gi"
-    
-    if [ "$PERFIL" = "prod" ]; then
-        awx_web_cpu_lim="2000m"
-        awx_web_mem_lim="4Gi"
-        awx_task_cpu_lim="4000m"
-        awx_task_mem_lim="4Gi"
-    fi
+    log_info "Criando instância AWX com recursos otimizados..."
     
     cat > /tmp/awx-instance.yaml << EOF
 apiVersion: awx.ansible.com/v1beta1
@@ -1176,28 +616,42 @@ spec:
   admin_user: admin
   admin_email: admin@example.com
   
+  # Execution Environment personalizado
   control_plane_ee_image: localhost:5001/awx-custom-ee:latest
   
+  # Configuração de réplicas baseada no perfil
   replicas: ${WEB_REPLICAS}
   web_replicas: ${WEB_REPLICAS}
   task_replicas: ${TASK_REPLICAS}
   
+  # Recursos para web containers
   web_resource_requirements:
     requests:
-      cpu: ${awx_web_cpu_req}
-      memory: ${awx_web_mem_req}
+      cpu: ${AWX_WEB_CPU_REQUEST}
+      memory: ${AWX_WEB_MEMORY_REQUEST}
     limits:
-      cpu: ${awx_web_cpu_lim}
-      memory: ${awx_web_mem_lim}
+      cpu: ${AWX_WEB_CPU_LIMIT}
+      memory: ${AWX_WEB_MEMORY_LIMIT}
   
+  # Recursos para task containers
   task_resource_requirements:
     requests:
-      cpu: ${awx_task_cpu_req}
-      memory: ${awx_task_mem_req}
+      cpu: ${AWX_TASK_CPU_REQUEST}
+      memory: ${AWX_TASK_MEMORY_REQUEST}
     limits:
-      cpu: ${awx_task_cpu_lim}
-      memory: ${awx_task_mem_lim}
+      cpu: ${AWX_TASK_CPU_LIMIT}
+      memory: ${AWX_TASK_MEMORY_LIMIT}
   
+  # Recursos para PostgreSQL
+  postgres_resource_requirements:
+    requests:
+      cpu: ${AWX_POSTGRES_CPU_REQUEST}
+      memory: ${AWX_POSTGRES_MEMORY_REQUEST}
+    limits:
+      cpu: ${AWX_POSTGRES_CPU_LIMIT}
+      memory: ${AWX_POSTGRES_MEMORY_LIMIT}
+  
+  # Persistência otimizada
   projects_persistence: true
   projects_storage_size: 8Gi
   projects_storage_access_mode: ReadWriteOnce
@@ -1210,297 +664,119 @@ spec:
       storage: 8Gi
 EOF
 
-    kubectl apply -f /tmp/awx-instance.yaml -n "$AWX_NAMESPACE" >/dev/null 2>&1
+    kubectl apply -f /tmp/awx-instance.yaml -n "$AWX_NAMESPACE"
     rm /tmp/awx-instance.yaml
     
-    log_success "Instância AWX criada e configurada!"
+    log_success "Instância AWX criada com configuração otimizada!"
 }
 
 # ============================
-# MONITORAMENTO AVANÇADO
+# FUNÇÃO PRINCIPAL INTERATIVA
 # ============================
 
-wait_for_awx() {
-    log_header "AGUARDANDO INSTALAÇÃO DO AWX"
+main() {
+    show_welcome
     
-    if ! kubectl get namespace "$AWX_NAMESPACE" &> /dev/null; then
-        log_error "Namespace $AWX_NAMESPACE não existe!"
-        return 1
-    fi
-    
-    local phases=("Pending" "ContainerCreating" "Running")
-    local timeout=120
-    
-    for phase in "${phases[@]}"; do
-        echo -e "${INFO} Aguardando pods na fase: ${BOLD}$phase${NC}"
-        local elapsed=0
+    while true; do
+        show_main_menu
+        choice=$(read_user_choice)
         
-        while [ $elapsed -lt $timeout ]; do
-            local pod_count=$(kubectl get pods -n "$AWX_NAMESPACE" --field-selector=status.phase="$phase" --no-headers 2>/dev/null | wc -l)
-            
-            if [ "$pod_count" -gt 0 ]; then
-                log_success "Encontrados $pod_count pod(s) na fase $phase"
-                if [[ $VERBOSE == true ]]; then
-                    kubectl get pods -n "$AWX_NAMESPACE"
-                fi
+        case "$choice" in
+            1)
+                log_info "Modo automático selecionado"
+                advanced_resource_detection
+                show_resource_summary
                 break
-            fi
-            
-            sleep 10
-            elapsed=$((elapsed + 10))
-            printf "${GRAY}.${NC}"
-        done
-        echo
+                ;;
+            2)
+                log_info "Modo manual selecionado"
+                show_manual_config_menu
+                advanced_resource_detection
+                show_resource_summary
+                break
+                ;;
+            3)
+                log_info "Instalando apenas dependências"
+                INSTALL_DEPS_ONLY=true
+                break
+                ;;
+            4)
+                show_help
+                ;;
+            5)
+                log_info "Saindo..."
+                exit 0
+                ;;
+            *)
+                log_error "Opção inválida. Escolha um número de 1 a 5."
+                ;;
+        esac
     done
     
-    (kubectl wait --for=condition=Ready pods --all -n "$AWX_NAMESPACE" --timeout=600s >/dev/null 2>&1) &
-    show_spinner $! "Verificação final dos pods"
-}
-
-get_awx_password() {
-    log_info "Obtendo credenciais de acesso..."
-    
-    local timeout=300
-    local elapsed=0
-    while ! kubectl get secret awx-"$PERFIL"-admin-password -n "$AWX_NAMESPACE" &> /dev/null; do
-        if [ $elapsed -ge $timeout ]; then
-            log_error "Timeout aguardando senha do AWX"
-            log_error "Execute: kubectl logs -n $AWX_NAMESPACE deployment/awx-operator-controller-manager"
-            exit 1
-        fi
-        sleep 5
-        elapsed=$((elapsed + 5))
-        printf "${GRAY}.${NC}"
-    done
-    echo
-    
-    AWX_PASSWORD=$(kubectl get secret awx-"$PERFIL"-admin-password -n "$AWX_NAMESPACE" -o jsonpath='{.data.password}' | base64 --decode)
-    log_success "Credenciais obtidas com sucesso"
-}
-
-# ============================
-# APRESENTAÇÃO FINAL APRIMORADA
-# ============================
-
-show_final_info() {
-    clear
-    
-    # Banner de sucesso
-    echo -e "${BOLD}${GREEN}"
-    cat << 'EOF'
-    ╔══════════════════════════════════════════════════════════════════════╗
-    ║                                                                      ║
-    ║    🎉 INSTALAÇÃO CONCLUÍDA COM SUCESSO! 🎉                          ║
-    ║                                                                      ║
-    ╚══════════════════════════════════════════════════════════════════════╝
-EOF
-    echo -e "${NC}"
-    
-    local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-    
-    echo
-    draw_box "INFORMAÇÕES DE ACESSO" "$GREEN"
-    echo
-    echo -e "${COMPUTER} ${BOLD}URL de Acesso:${NC} ${GREEN}${UNDERLINE}http://${node_ip}:${HOST_PORT}${NC}"
-    echo -e "${COMPUTER} ${BOLD}Usuário:${NC} ${GREEN}admin${NC}"
-    echo -e "${COMPUTER} ${BOLD}Senha:${NC} ${GREEN}${BOLD}$AWX_PASSWORD${NC}"
-    echo
-    
-    draw_box "CONFIGURAÇÃO DO SISTEMA" "$BLUE"
-    echo
-    echo -e "${GEAR} ${BOLD}Perfil:${NC} ${GREEN}$PERFIL${NC}"
-    echo -e "${GEAR} ${BOLD}CPUs Utilizadas:${NC} ${GREEN}$CORES${NC}"
-    echo -e "${GEAR} ${BOLD}Memória:${NC} ${GREEN}${MEM_MB}MB${NC}"
-    echo -e "${GEAR} ${BOLD}Web Réplicas:${NC} ${GREEN}$WEB_REPLICAS${NC}"
-    echo -e "${GEAR} ${BOLD}Task Réplicas:${NC} ${GREEN}$TASK_REPLICAS${NC}"
-    echo -e "${GEAR} ${BOLD}Cluster:${NC} ${GREEN}$CLUSTER_NAME${NC}"
-    echo -e "${GEAR} ${BOLD}Namespace:${NC} ${GREEN}$AWX_NAMESPACE${NC}"
-    echo
-    
-    draw_box "COMANDOS ÚTEIS" "$PURPLE"
-    echo
-    echo -e "${WRENCH} ${BOLD}Ver pods:${NC} ${CYAN}kubectl get pods -n $AWX_NAMESPACE${NC}"
-    echo -e "${WRENCH} ${BOLD}Logs web:${NC} ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-web${NC}"
-    echo -e "${WRENCH} ${BOLD}Logs task:${NC} ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-task${NC}"
-    echo -e "${WRENCH} ${BOLD}Deletar cluster:${NC} ${CYAN}kind delete cluster --name $CLUSTER_NAME${NC}"
-    echo -e "${WRENCH} ${BOLD}Parar registry:${NC} ${CYAN}docker stop kind-registry && docker rm kind-registry${NC}"
-    echo
-    
-    if [ "$VERBOSE" = true ]; then
-        draw_box "STATUS ATUAL DOS PODS" "$YELLOW"
-        echo
-        kubectl get pods -n "$AWX_NAMESPACE" -o wide
-        echo
+    # Executar instalação
+    if [ "$INSTALL_DEPS_ONLY" = true ]; then
+        install_dependencies
+        log_success "Dependências instaladas! Execute novamente para instalar o AWX."
+        exit 0
     fi
     
-    draw_box "PRÓXIMOS PASSOS" "$CYAN"
-    echo
-    echo -e "${ARROW} Acesse ${GREEN}http://${node_ip}:${HOST_PORT}${NC} em seu navegador"
-    echo -e "${ARROW} Faça login com as credenciais fornecidas acima"
-    echo -e "${ARROW} Configure seus projetos e inventários no AWX"
-    echo -e "${ARROW} Consulte a documentação em ${BLUE}https://ansible.readthedocs.io/projects/awx/en/latest/${NC}"
-    echo
-    
-    # Som de conclusão (se habilitado)
-    if [[ $ENABLE_SOUNDS == true ]] && command_exists paplay; then
-        echo -e "${INFO} Reproduzindo som de conclusão..."
-        paplay /usr/share/sounds/alsa/Front_Right.wav 2>/dev/null || true
-    fi
+    # Instalação completa
+    install_dependencies
+    create_kind_cluster
+    create_execution_environment
+    install_awx
+    wait_for_awx
+    get_awx_password
+    show_final_info
 }
 
 # ============================
-# CONFIGURAÇÕES E PARSING
+# INICIALIZAÇÃO
 # ============================
 
 # Valores padrão
 DEFAULT_HOST_PORT=8080
 INSTALL_DEPS_ONLY=false
 VERBOSE=false
-SILENT=false
-INTERACTIVE=true
-AUTO_MODE=false
-MANUAL_MODE=false
-
-# Variáveis de recursos
 FORCE_CPU=""
 FORCE_MEM_MB=""
-CUSTOM_REGISTRY=""
-WORKER_NODES=""
-K8S_VERSION=""
-
-# Inicializar recursos
-initialize_resources
-
-# Valores padrão dependentes do perfil
-DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
-
-# Parse das opções
-while getopts "c:p:f:m:dvsih" opt; do
-    case ${opt} in
-        c)
-            if [ -z "$OPTARG" ]; then
-                log_error "Nome do cluster não pode estar vazio"
-                exit 1
-            fi
-            CLUSTER_NAME="$OPTARG"
-            ;;
-        p)
-            if ! validate_port "$OPTARG"; then
-                exit 1
-            fi
-            HOST_PORT="$OPTARG"
-            ;;
-        f)
-            if ! validate_cpu "$OPTARG"; then
-                exit 1
-            fi
-            FORCE_CPU="$OPTARG"
-            initialize_resources
-            DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
-            ;;
-        m)
-            if ! validate_memory "$OPTARG"; then
-                exit 1
-            fi
-            FORCE_MEM_MB="$OPTARG"
-            initialize_resources
-            DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
-            ;;
-        d)
-            INSTALL_DEPS_ONLY=true
-            ;;
-        v)
-            VERBOSE=true
-            ;;
-        s)
-            INTERACTIVE=false
-            AUTO_MODE=true
-            ;;
-        i)
-            INTERACTIVE=true
-            SILENT=false
-            ;;
-        h)
-            show_help
-            exit 0
-            ;;
-        *)
-            log_error "Opção inválida: -$OPTARG"
-            show_help
-            exit 1
-            ;;
-    esac
-done
-shift $((OPTIND - 1))
-
-# Aplicar valores padrão
-CLUSTER_NAME=${CLUSTER_NAME:-$DEFAULT_CLUSTER_NAME}
-HOST_PORT=${HOST_PORT:-$DEFAULT_HOST_PORT}
 AWX_NAMESPACE="awx"
 
-# ============================
-# EXECUÇÃO PRINCIPAL
-# ============================
+# Parse de argumentos da linha de comando (mantém compatibilidade)
+while getopts "c:p:f:m:dvh" opt; do
+    case ${opt} in
+        c) CLUSTER_NAME="$OPTARG" ;;
+        p) validate_port "$OPTARG" && HOST_PORT="$OPTARG" ;;
+        f) validate_cpu "$OPTARG" && FORCE_CPU="$OPTARG" ;;
+        m) validate_memory "$OPTARG" && FORCE_MEM_MB="$OPTARG" ;;
+        d) INSTALL_DEPS_ONLY=true ;;
+        v) VERBOSE=true ;;
+        h) show_help; exit 0 ;;
+        *) log_error "Opção inválida"; exit 1 ;;
+    esac
+done
 
-# Verificar modo de operação
-if [[ $SILENT == true ]]; then
-    log_header "AWX DEPLOYMENT - MODO SILENCIOSO"
-    AUTO_MODE=true
-elif [[ $INTERACTIVE == true ]] && [[ $AUTO_MODE == false ]] && [[ $MANUAL_MODE == false ]]; then
-    # Mostrar menu principal apenas se não foi especificado modo
-    show_main_menu
-fi
+# Aplicar padrões
+HOST_PORT=${HOST_PORT:-$DEFAULT_HOST_PORT}
 
-# Mostrar configuração se não estiver em modo silencioso
-if [[ $SILENT == false ]]; then
-    if ! show_configuration_summary; then
-        log_error "Instalação cancelada"
-        exit 1
-    fi
-fi
-
-# Log inicial
-if [[ $SILENT == false ]]; then
-    log_header "INICIANDO IMPLANTAÇÃO AWX"
+# Se argumentos foram passados, usar modo não-interativo
+if [ $# -gt 0 ]; then
+    advanced_resource_detection
+    CLUSTER_NAME=${CLUSTER_NAME:-"awx-cluster-${PERFIL}"}
     
-    echo -e "${COMPUTER} ${BOLD}Recursos do Sistema:${NC}"
-    echo -e "   ${GEAR} CPUs: ${GREEN}$CORES${NC}"
-    echo -e "   ${GEAR} Memória: ${GREEN}${MEM_MB}MB${NC}"
-    echo -e "   ${GEAR} Perfil: ${GREEN}$PERFIL${NC}"
-    echo -e "   ${GEAR} Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
-    echo -e "   ${GEAR} Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
-    echo
-    echo -e "${ROCKET} ${BOLD}Configuração da Implantação:${NC}"
-    echo -e "   ${GEAR} Cluster: ${GREEN}$CLUSTER_NAME${NC}"
-    echo -e "   ${GEAR} Porta: ${GREEN}$HOST_PORT${NC}"
-    echo -e "   ${GEAR} Namespace: ${GREEN}$AWX_NAMESPACE${NC}"
-    echo -e "   ${GEAR} Modo: ${GREEN}$([ $AUTO_MODE == true ] && echo "Automático" || echo "Manual")${NC}"
-    echo
-fi
-
-# Execução principal
-install_dependencies
-
-if [ "$INSTALL_DEPS_ONLY" = true ]; then
-    log_success "Dependências instaladas com sucesso!"
-    if [[ $SILENT == false ]]; then
-        echo -e "${INFO} Execute o script novamente sem a opção -d para instalar o AWX"
+    if [ "$INSTALL_DEPS_ONLY" = true ]; then
+        install_dependencies
+        exit 0
     fi
-    exit 0
-fi
-
-create_kind_cluster
-create_execution_environment
-install_awx
-wait_for_awx
-get_awx_password
-
-if [[ $SILENT == false ]]; then
+    
+    install_dependencies
+    create_kind_cluster
+    create_execution_environment
+    install_awx
+    wait_for_awx
+    get_awx_password
     show_final_info
 else
-    echo "AWX_URL=http://$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'):${HOST_PORT}"
-    echo "AWX_USER=admin"
-    echo "AWX_PASSWORD=$AWX_PASSWORD"
+    # Modo interativo
+    main
 fi
-
-log_success "Instalação do AWX concluída com sucesso!"

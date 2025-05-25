@@ -2,718 +2,891 @@
 set -e
 
 # ============================
-# CONFIGURAÇÃO E CONSTANTES
+# CONFIGURAÇÃO E INICIALIZAÇÃO
 # ============================
 
-# Arquivo de configuração personalizável
-CONFIG_FILE="${HOME}/.awx-installer.conf"
-SCRIPT_VERSION="2.0.0"
-SCRIPT_NAME="AWX Installer"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/awx-config.conf"
 
 # Cores para output
-declare -A COLORS=(
-    [RED]='\033[0;31m'
-    [GREEN]='\033[0;32m'
-    [YELLOW]='\033[1;33m'
-    [BLUE]='\033[0;34m'
-    [PURPLE]='\033[0;35m'
-    [CYAN]='\033[0;36m'
-    [WHITE]='\033[1;37m'
-    [GRAY]='\033[0;37m'
-    [NC]='\033[0m'
-)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+GRAY='\033[0;90m'
+NC='\033[0m' # No Color
+
+# Variáveis de progresso
+TOTAL_STEPS=0
+CURRENT_STEP=0
+STEP_START_TIME=0
 
 # ============================
-# SISTEMA DE LOGGING AVANÇADO
+# SISTEMA DE LOGGING MELHORADO
 # ============================
 
-# Função para log com timestamp e níveis
-log_with_level() {
-    local level=$1
-    local color=$2
-    local message=$3
-    local timestamp=$(date '+%H:%M:%S')
-    echo -e "${color}[$timestamp][$level]${COLORS[NC]} $message"
+init_progress() {
+    TOTAL_STEPS=$1
+    CURRENT_STEP=0
+    log_header "INICIANDO PROCESSO ($TOTAL_STEPS etapas)"
+}
+
+next_step() {
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    STEP_START_TIME=$(date +%s)
+    local step_name="$1"
+    local percentage=$((CURRENT_STEP * 100 / TOTAL_STEPS))
+    
+    echo ""
+    echo -e "${CYAN}[ETAPA $CURRENT_STEP/$TOTAL_STEPS - $percentage%]${NC} ${WHITE}$step_name${NC}"
+    echo -e "${GRAY}$(date '+%Y-%m-%d %H:%M:%S')${NC}"
+    echo -e "${BLUE}${'='*60}${NC}"
+}
+
+step_completed() {
+    local duration=$(($(date +%s) - STEP_START_TIME))
+    echo -e "${GREEN}✓ Etapa concluída em ${duration}s${NC}"
 }
 
 log_info() {
-    log_with_level "INFO" "${COLORS[BLUE]}" "$1"
+    echo -e "${BLUE}[INFO]${NC} $1"
 }
 
 log_success() {
-    log_with_level "SUCCESS" "${COLORS[GREEN]}" "$1"
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
 log_warning() {
-    log_with_level "WARNING" "${COLORS[YELLOW]}" "$1"
+    echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
 log_error() {
-    log_with_level "ERROR" "${COLORS[RED]}" "$1"
+    echo -e "${RED}[ERROR]${NC} $1"
 }
 
 log_debug() {
-    [ "$VERBOSE" = true ] && log_with_level "DEBUG" "${COLORS[PURPLE]}" "$1"
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${PURPLE}[DEBUG]${NC} $1"
+    fi
 }
 
-log_step() {
-    echo -e "${COLORS[CYAN]}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLORS[NC]}"
-    echo -e "${COLORS[WHITE]}🔧 $1${COLORS[NC]}"
-    echo -e "${COLORS[CYAN]}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLORS[NC]}"
+log_header() {
+    echo ""
+    echo -e "${CYAN}${'='*80}${NC}"
+    echo -e "${WHITE}$1${NC}"
+    echo -e "${CYAN}${'='*80}${NC}"
 }
 
-# Progress bar melhorado
-show_progress() {
+progress_bar() {
     local current=$1
     local total=$2
-    local message=$3
     local width=50
     local percentage=$((current * 100 / total))
     local completed=$((current * width / total))
     local remaining=$((width - completed))
     
-    printf "\r${COLORS[CYAN]}%-30s${COLORS[NC]} [" "$message"
-    printf "%${completed}s" | tr ' ' '█'
-    printf "%${remaining}s" | tr ' ' '░'
-    printf "] %d%%" $percentage
+    printf "\r${BLUE}["
+    printf "%*s" $completed | tr ' ' '='
+    printf "%*s" $remaining | tr ' ' '-'
+    printf "] %d%% (%d/%d)${NC}" $percentage $current $total
+}
+
+# ============================
+# SISTEMA DE CONFIGURAÇÃO
+# ============================
+
+load_config() {
+    log_info "Carregando configurações..."
     
-    if [ $current -eq $total ]; then
-        echo -e " ${COLORS[GREEN]}✓${COLORS[NC]}"
+    if [ -f "$CONFIG_FILE" ]; then
+        log_success "Arquivo de configuração encontrado: $CONFIG_FILE"
+        source "$CONFIG_FILE"
+    else
+        log_warning "Arquivo de configuração não encontrado, criando padrão..."
+        create_default_config
+        source "$CONFIG_FILE"
     fi
-}
-
-# Spinner para operações longas
-show_spinner() {
-    local pid=$1
-    local message=$2
-    local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    local i=0
     
-    echo -n "$message "
-    while kill -0 $pid 2>/dev/null; do
-        printf "\b${spin:i++%${#spin}:1}"
-        sleep 0.1
-    done
-    echo -e "\b${COLORS[GREEN]}✓${COLORS[NC]}"
+    # Aplicar templates para gerar nomes padronizados
+    apply_name_templates
+    
+    log_debug "Configurações carregadas:"
+    log_debug "  Environment: $ENVIRONMENT_NAME"
+    log_debug "  Cluster: $CLUSTER_NAME"
+    log_debug "  Namespace: $AWX_NAMESPACE"
 }
 
-# ============================
-# CONFIGURAÇÃO PERSONALIZÁVEL
-# ============================
-
-# Criar arquivo de configuração padrão
 create_default_config() {
-    cat > "$CONFIG_FILE" << EOF
-# Configuração do AWX Installer v$SCRIPT_VERSION
-# Edite este arquivo para personalizar a instalação
-
-[CLUSTER]
-# Nome do cluster (deixe vazio para auto-gerar baseado no perfil)
-CLUSTER_NAME=""
-
-# Porta do host para acessar AWX
-HOST_PORT=8080
-
-# Namespace do AWX
-AWX_NAMESPACE="awx"
-
-[RESOURCES]
-# Forçar número de CPUs (deixe vazio para auto-detectar)
+    cat > "$CONFIG_FILE" << 'EOF'
+# Configuração AWX - Gerada automaticamente
+ENVIRONMENT_NAME="development"
+PROJECT_PREFIX="awx"
+ORGANIZATION="company"
+DEFAULT_HOST_PORT=8080
 FORCE_CPU=""
-
-# Forçar quantidade de memória em MB (deixe vazio para auto-detectar)
 FORCE_MEM_MB=""
-
-# Fator de segurança para recursos (70-90, menor = mais conservador)
 SAFETY_FACTOR_PROD=70
 SAFETY_FACTOR_DEV=80
-
-[AWX]
-# Versão do AWX Operator
-AWX_OPERATOR_VERSION="2.19.1"
-
-# Versão da imagem base do Execution Environment
-EE_BASE_IMAGE="quay.io/ansible/awx-ee:24.6.1"
-
-# Nome da imagem personalizada do EE
-EE_CUSTOM_IMAGE="localhost:5001/awx-custom-ee:latest"
-
-# Timeout para aguardar pods (em segundos)
-POD_WAIT_TIMEOUT=600
-
-[STORAGE]
-# Tamanho do storage para projetos
+CLUSTER_NAME_TEMPLATE="{prefix}-cluster-{env}"
+ENABLE_MULTI_NODE=true
+MAX_PODS_PER_NODE=110
+ADMIN_USERNAME="admin"
+ADMIN_EMAIL="admin@company.com"
+AWX_NAMESPACE_TEMPLATE="{prefix}-{env}"
 PROJECTS_STORAGE_SIZE="8Gi"
-
-# Tamanho do storage para PostgreSQL
 POSTGRES_STORAGE_SIZE="8Gi"
-
-[ADVANCED]
-# Habilitar registry local
-ENABLE_LOCAL_REGISTRY=true
-
-# Porta do registry local
-REGISTRY_PORT=5001
-
-# Limpar recursos existentes antes de instalar
-CLEAN_BEFORE_INSTALL=false
-
-# Aguardar confirmação para operações destrutivas
-CONFIRM_DESTRUCTIVE_OPERATIONS=true
+ENABLE_PROJECTS_PERSISTENCE=true
+CUSTOM_EE_NAME_TEMPLATE="{prefix}-custom-ee"
+EE_BASE_IMAGE="quay.io/ansible/awx-ee:24.6.1"
+PROGRESS_UPDATE_INTERVAL=10
+DEPLOYMENT_TIMEOUT=600
+HEALTH_CHECK_RETRIES=30
+VERBOSE_DEFAULT=false
+CLEANUP_ON_ERROR=true
+BACKUP_BEFORE_UPGRADE=true
 EOF
-    log_success "Arquivo de configuração criado em: $CONFIG_FILE"
+    log_success "Arquivo de configuração padrão criado: $CONFIG_FILE"
 }
 
-# Carregar configuração
-load_config() {
-    if [ ! -f "$CONFIG_FILE" ]; then
-        log_info "Criando arquivo de configuração padrão..."
-        create_default_config
-    fi
+apply_name_templates() {
+    # Aplicar templates usando substituição de variáveis
+    CLUSTER_NAME=$(echo "$CLUSTER_NAME_TEMPLATE" | sed "s/{prefix}/$PROJECT_PREFIX/g" | sed "s/{env}/$ENVIRONMENT_NAME/g" | sed "s/{org}/$ORGANIZATION/g")
+    AWX_NAMESPACE=$(echo "$AWX_NAMESPACE_TEMPLATE" | sed "s/{prefix}/$PROJECT_PREFIX/g" | sed "s/{env}/$ENVIRONMENT_NAME/g" | sed "s/{org}/$ORGANIZATION/g")
+    AWX_INSTANCE_NAME="$PROJECT_PREFIX-$ENVIRONMENT_NAME"
+    CUSTOM_EE_NAME=$(echo "$CUSTOM_EE_NAME_TEMPLATE" | sed "s/{prefix}/$PROJECT_PREFIX/g" | sed "s/{env}/$ENVIRONMENT_NAME/g" | sed "s/{org}/$ORGANIZATION/g")
     
-    # Carregar configurações usando source com validação
-    if ! source "$CONFIG_FILE" 2>/dev/null; then
-        log_error "Erro ao carregar configuração de $CONFIG_FILE"
-        exit 1
-    fi
-    
-    log_debug "Configuração carregada de: $CONFIG_FILE"
+    log_debug "Nomes gerados:"
+    log_debug "  Cluster: $CLUSTER_NAME"
+    log_debug "  Namespace: $AWX_NAMESPACE"
+    log_debug "  AWX Instance: $AWX_INSTANCE_NAME"
+    log_debug "  Custom EE: $CUSTOM_EE_NAME"
 }
 
 # ============================
-# VALIDAÇÃO ROBUSTA
+# VALIDAÇÃO MELHORADA
 # ============================
 
-# Validação aprimorada de recursos
-validate_system_requirements() {
-    log_step "VALIDAÇÃO DOS REQUISITOS DO SISTEMA"
+validate_config() {
+    log_info "Validando configurações..."
     
     local errors=0
     
-    # Verificar sistema operacional
-    if [[ ! -f /etc/os-release ]] || ! grep -q "Ubuntu\|Debian" /etc/os-release; then
-        log_warning "Sistema não testado. Recomendado: Ubuntu 20.04+"
+    # Validar nome do ambiente
+    if [[ ! "$ENVIRONMENT_NAME" =~ ^[a-z0-9-]+$ ]]; then
+        log_error "Nome do ambiente inválido: $ENVIRONMENT_NAME (use apenas letras minúsculas, números e hífens)"
+        errors=$((errors + 1))
     fi
     
-    # Verificar versão do kernel
-    local kernel_version=$(uname -r | cut -d. -f1-2)
-    if ! (( $(echo "$kernel_version >= 5.4" | bc -l) )); then
-        log_warning "Kernel antigo detectado: $kernel_version. Recomendado: 5.4+"
+    # Validar porta
+    if ! validate_port "$DEFAULT_HOST_PORT"; then
+        errors=$((errors + 1))
     fi
     
-    # Verificar espaço em disco
-    local disk_space=$(df / | awk 'NR==2 {print $4}')
-    local disk_space_gb=$((disk_space / 1024 / 1024))
-    
-    if [ "$disk_space_gb" -lt 20 ]; then
-        log_error "Espaço em disco insuficiente: ${disk_space_gb}GB. Mínimo: 20GB"
-        ((errors++))
-    else
-        log_success "Espaço em disco: ${disk_space_gb}GB ✓"
+    # Validar recursos forçados se especificados
+    if [ -n "$FORCE_CPU" ] && ! validate_cpu "$FORCE_CPU"; then
+        errors=$((errors + 1))
     fi
     
-    # Verificar arquitetura
-    local arch=$(uname -m)
-    if [ "$arch" != "x86_64" ]; then
-        log_error "Arquitetura não suportada: $arch. Requerido: x86_64"
-        ((errors++))
+    if [ -n "$FORCE_MEM_MB" ] && ! validate_memory "$FORCE_MEM_MB"; then
+        errors=$((errors + 1))
+    fi
+    
+    # Validar storage sizes
+    if ! validate_storage_size "$PROJECTS_STORAGE_SIZE"; then
+        log_error "Tamanho de storage para projetos inválido: $PROJECTS_STORAGE_SIZE"
+        errors=$((errors + 1))
     fi
     
     if [ $errors -gt 0 ]; then
-        log_error "Encontrados $errors erro(s) nos requisitos do sistema"
+        log_error "Encontrados $errors erro(s) de configuração. Corrija e execute novamente."
         exit 1
     fi
     
-    log_success "Todos os requisitos do sistema atendidos ✓"
+    log_success "Configurações validadas com sucesso!"
+}
+
+validate_port() {
+    if ! [[ "$1" =~ ^[0-9]+$ ]] || [ "$1" -lt 1 ] || [ "$1" -gt 65535 ]; then
+        log_error "Porta inválida: $1. Use um valor entre 1 e 65535."
+        return 1
+    fi
+    return 0
+}
+
+validate_cpu() {
+    if ! [[ "$1" =~ ^[0-9]+$ ]] || [ "$1" -lt 1 ] || [ "$1" -gt 64 ]; then
+        log_error "CPU inválida: $1. Use um valor entre 1 e 64."
+        return 1
+    fi
+    return 0
+}
+
+validate_memory() {
+    if ! [[ "$1" =~ ^[0-9]+$ ]] || [ "$1" -lt 512 ] || [ "$1" -gt 131072 ]; then
+        log_error "Memória inválida: $1. Use um valor entre 512 MB e 131072 MB (128 GB)."
+        return 1
+    fi
+    return 0
+}
+
+validate_storage_size() {
+    if [[ "$1" =~ ^[0-9]+[GMKgmk]i?$ ]]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # ============================
-# CÁLCULOS DE RECURSOS VISUAIS
+# DETECÇÃO E CÁLCULO DE RECURSOS MELHORADO
 # ============================
 
-# Exibir tabela de recursos do sistema
-show_system_resources() {
-    log_step "ANÁLISE DE RECURSOS DO SISTEMA"
+initialize_resources() {
+    log_info "Detectando recursos do sistema..."
     
-    local total_cores=$(detect_cores)
-    local total_mem_mb=$(detect_mem_mb)
-    local profile=$(determine_profile "$total_cores" "$total_mem_mb")
+    # Detectar recursos (considerando valores forçados se existirem)
+    CORES=$([ -n "$FORCE_CPU" ] && echo "$FORCE_CPU" || nproc --all)
+    MEM_MB=$([ -n "$FORCE_MEM_MB" ] && echo "$FORCE_MEM_MB" || awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
     
-    # Calcular reservas e recursos disponíveis
+    # Determinar perfil baseado nos recursos
+    PERFIL=$(determine_profile "$CORES" "$MEM_MB")
+    
+    # Calcular recursos disponíveis com fator de segurança configurável
+    calculate_available_resources "$CORES" "$MEM_MB" "$PERFIL"
+    
+    # Calcular réplicas baseado no perfil e recursos
+    WEB_REPLICAS=$(calculate_replicas "$PERFIL" "$AVAILABLE_CPU_MILLICORES" "web")
+    TASK_REPLICAS=$(calculate_replicas "$PERFIL" "$AVAILABLE_CPU_MILLICORES" "task")
+    
+    # Exibir relatório detalhado de recursos
+    show_resource_report
+}
+
+determine_profile() {
+    local cores=$1
+    local mem_mb=$2
+    
+    if [ "$cores" -ge 4 ] && [ "$mem_mb" -ge 8192 ]; then
+        echo "production"
+    else
+        echo "development"
+    fi
+}
+
+calculate_available_resources() {
+    local total_cores=$1
+    local total_mem_mb=$2
+    local profile=$3
+
+    # Calcular reservas usando fórmulas otimizadas
     local cpu_reserved_millicores=$(calculate_cpu_reserved "$total_cores")
     local mem_reserved_mb=$(calculate_memory_reserved "$total_mem_mb")
-    
+
+    # Recursos disponíveis após reservas
     local available_cpu=$((total_cores * 1000 - cpu_reserved_millicores))
     local available_mem=$((total_mem_mb - mem_reserved_mb))
-    
-    # Aplicar fator de segurança
-    local safety_factor
-    if [ "$profile" = "prod" ]; then
-        safety_factor=${SAFETY_FACTOR_PROD:-70}
-    else
-        safety_factor=${SAFETY_FACTOR_DEV:-80}
+
+    # Aplicar fator de segurança configurável
+    local safety_factor=$SAFETY_FACTOR_DEV
+    [ "$profile" = "production" ] && safety_factor=$SAFETY_FACTOR_PROD
+
+    available_cpu=$((available_cpu * safety_factor / 100))
+    available_mem=$((available_mem * safety_factor / 100))
+
+    # Garantir valores mínimos operacionais
+    [ "$available_cpu" -lt 500 ] && available_cpu=500  # 0.5 core mínimo
+    [ "$available_mem" -lt 512 ] && available_mem=512   # 512MB mínimo
+
+    AVAILABLE_CPU_MILLICORES=$available_cpu
+    AVAILABLE_MEMORY_MB=$available_mem
+}
+
+calculate_cpu_reserved() {
+    local total_cores=$1
+    local reserved_millicores=0
+
+    # Fórmula baseada nas reservas padrão do GKE/EKS/AKS
+    if [ "$total_cores" -ge 1 ]; then
+        reserved_millicores=$((reserved_millicores + 60))  # Primeiro core: 60m
+        remaining_cores=$((total_cores - 1))
     fi
-    
-    local usable_cpu=$((available_cpu * safety_factor / 100))
-    local usable_mem=$((available_mem * safety_factor / 100))
-    
-    # Exibir tabela formatada
-    echo ""
-    echo -e "${COLORS[CYAN]}┌─────────────────────────────────────────────────────────────────┐${COLORS[NC]}"
-    echo -e "${COLORS[CYAN]}│${COLORS[WHITE]}                    RECURSOS DO SISTEMA                          ${COLORS[CYAN]}│${COLORS[NC]}"
-    echo -e "${COLORS[CYAN]}├─────────────────────────────────────────────────────────────────┤${COLORS[NC]}"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-20s │ %-15s │ %-15s │ %-8s ${COLORS[CYAN]}│${COLORS[NC]}\n" "Recurso" "Total" "Disponível" "Usável"
-    echo -e "${COLORS[CYAN]}├─────────────────────────────────────────────────────────────────┤${COLORS[NC]}"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-20s │ %-15s │ %-15s │ %-8s ${COLORS[CYAN]}│${COLORS[NC]}\n" "CPU (cores)" "$total_cores" "$(echo "scale=2; $available_cpu/1000" | bc)" "$(echo "scale=2; $usable_cpu/1000" | bc)"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-20s │ %-15s │ %-15s │ %-8s ${COLORS[CYAN]}│${COLORS[NC]}\n" "Memória (MB)" "$total_mem_mb" "$available_mem" "$usable_mem"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-20s │ %-15s │ %-15s │ %-8s ${COLORS[CYAN]}│${COLORS[NC]}\n" "Perfil" "$profile" "-" "-"
-    echo -e "${COLORS[CYAN]}└─────────────────────────────────────────────────────────────────┘${COLORS[NC]}"
-    echo ""
-    
-    # Exibir recomendações baseadas no perfil
-    if [ "$profile" = "prod" ]; then
-        echo -e "${COLORS[GREEN]}🚀 Perfil PRODUÇÃO detectado:${COLORS[NC]}"
-        echo -e "   • Múltiplas réplicas habilitadas"
-        echo -e "   • Alta disponibilidade configurada"
-        echo -e "   • Recursos otimizados para cargas de trabalho"
-    else
-        echo -e "${COLORS[YELLOW]}🧪 Perfil DESENVOLVIMENTO detectado:${COLORS[NC]}"
-        echo -e "   • Configuração otimizada para desenvolvimento"
-        echo -e "   • Menor consumo de recursos"
-        echo -e "   • Réplica única para componentes"
+
+    if [ "$remaining_cores" -ge 1 ]; then
+        reserved_millicores=$((reserved_millicores + 10))  # Segundo core: 10m
+        remaining_cores=$((remaining_cores - 1))
     fi
+
+    if [ "$remaining_cores" -ge 2 ]; then
+        reserved_millicores=$((reserved_millicores + 10))  # Próximos 2 cores: 5m cada
+        remaining_cores=$((remaining_cores - 2))
+    fi
+
+    if [ "$remaining_cores" -gt 0 ]; then
+        reserved_millicores=$((reserved_millicores + (remaining_cores * 25 / 10)))  # Demais: 2.5m cada
+    fi
+
+    echo $reserved_millicores
+}
+
+calculate_memory_reserved() {
+    local total_mem_mb=$1
+    local reserved_mb=0
+
+    # Fórmula escalonada baseada no modelo da GKE
+    if [ "$total_mem_mb" -lt 1024 ]; then
+        reserved_mb=255
+    else
+        # 25% dos primeiros 4 GiB
+        first_4gb=$((total_mem_mb > 4096 ? 4096 : total_mem_mb))
+        reserved_mb=$((first_4gb * 25 / 100))
+        remaining_mb=$((total_mem_mb - first_4gb))
+
+        # 20% dos próximos 4 GiB
+        if [ "$remaining_mb" -gt 0 ]; then
+            next_4gb=$((remaining_mb > 4096 ? 4096 : remaining_mb))
+            reserved_mb=$((reserved_mb + next_4gb * 20 / 100))
+            remaining_mb=$((remaining_mb - next_4gb))
+        fi
+
+        # 10% dos próximos 8 GiB
+        if [ "$remaining_mb" -gt 0 ]; then
+            next_8gb=$((remaining_mb > 8192 ? 8192 : remaining_mb))
+            reserved_mb=$((reserved_mb + next_8gb * 10 / 100))
+            remaining_mb=$((remaining_mb - next_8gb))
+        fi
+
+        # 6% dos próximos 112 GiB
+        if [ "$remaining_mb" -gt 0 ]; then
+            next_112gb=$((remaining_mb > 114688 ? 114688 : remaining_mb))
+            reserved_mb=$((reserved_mb + next_112gb * 6 / 100))
+            remaining_mb=$((remaining_mb - next_112gb))
+        fi
+
+        # 2% do restante
+        if [ "$remaining_mb" -gt 0 ]; then
+            reserved_mb=$((reserved_mb + remaining_mb * 2 / 100))
+        fi
+    fi
+
+    # Adicionar buffer para eviction threshold
+    reserved_mb=$((reserved_mb + 100))
+
+    echo $reserved_mb
+}
+
+calculate_replicas() {
+    local profile=$1
+    local available_cpu_millicores=$2
+    local workload_type=$3
+
+    local replicas=1
+
+    if [ "$profile" = "production" ]; then
+        local base_replicas=$((available_cpu_millicores / 1000))
+        
+        case "$workload_type" in
+            "web")
+                replicas=$((base_replicas * 2 / 3))
+                ;;
+            "task")
+                replicas=$((base_replicas / 2))
+                ;;
+            *)
+                replicas=$base_replicas
+                ;;
+        esac
+
+        # Limites operacionais
+        [ "$replicas" -lt 2 ] && replicas=2
+        [ "$replicas" -gt 10 ] && replicas=10
+    else
+        replicas=1
+        [ "$available_cpu_millicores" -ge 2000 ] && replicas=2
+    fi
+
+    echo $replicas
+}
+
+show_resource_report() {
     echo ""
+    log_header "RELATÓRIO DE RECURSOS DO SISTEMA"
     
-    # Salvar valores calculados em variáveis globais
-    export CALCULATED_PROFILE="$profile"
-    export CALCULATED_CORES="$total_cores"
-    export CALCULATED_MEM_MB="$total_mem_mb"
-    export CALCULATED_USABLE_CPU_MILLICORES="$usable_cpu"
-    export CALCULATED_USABLE_MEM_MB="$usable_mem"
+    echo -e "${WHITE}Hardware Detectado:${NC}"
+    echo -e "  CPUs Total: ${GREEN}$CORES${NC}"
+    echo -e "  Memória Total: ${GREEN}${MEM_MB}MB ($(echo "$MEM_MB/1024" | bc)GB)${NC}"
+    
+    echo ""
+    echo -e "${WHITE}Recursos Reservados (Sistema):${NC}"
+    local cpu_reserved=$(calculate_cpu_reserved "$CORES")
+    local mem_reserved=$(calculate_memory_reserved "$MEM_MB")
+    echo -e "  CPU Reservada: ${YELLOW}${cpu_reserved}m ($(echo "scale=1; $cpu_reserved/1000" | bc) cores)${NC}"
+    echo -e "  Memória Reservada: ${YELLOW}${mem_reserved}MB ($(echo "$mem_reserved/1024" | bc)GB)${NC}"
+    
+    echo ""
+    echo -e "${WHITE}Recursos Disponíveis (AWX):${NC}"
+    echo -e "  CPU Disponível: ${GREEN}${AVAILABLE_CPU_MILLICORES}m ($(echo "scale=1; $AVAILABLE_CPU_MILLICORES/1000" | bc) cores)${NC}"
+    echo -e "  Memória Disponível: ${GREEN}${AVAILABLE_MEMORY_MB}MB ($(echo "$AVAILABLE_MEMORY_MB/1024" | bc)GB)${NC}"
+    
+    echo ""
+    echo -e "${WHITE}Configuração Calculada:${NC}"
+    echo -e "  Perfil: ${GREEN}$PERFIL${NC}"
+    echo -e "  Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
+    echo -e "  Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
+    
+    local safety_factor=$SAFETY_FACTOR_DEV
+    [ "$PERFIL" = "production" ] && safety_factor=$SAFETY_FACTOR_PROD
+    echo -e "  Fator de Segurança: ${GREEN}${safety_factor}%${NC}"
 }
 
 # ============================
-# INSTALAÇÃO COM NOMES FIXOS
+# INSTALAÇÃO DO AWX MELHORADA
 # ============================
 
-# Instalação do AWX Operator com nomes determinísticos
-install_awx_operator_fixed() {
-    log_step "INSTALAÇÃO DO AWX OPERATOR (NOMES FIXOS)"
+install_awx() {
+    next_step "Instalação do AWX Operator"
     
-    log_info "Criando namespace..."
+    log_info "Adicionando repositório Helm do AWX Operator..."
+    helm repo add awx-operator https://ansible-community.github.io/awx-operator-helm/ 2>/dev/null || true
+    helm repo update
+    
+    log_info "Criando namespace '$AWX_NAMESPACE'..."
     kubectl create namespace "$AWX_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     
-    # Criar manifesto personalizado com nomes fixos
-    local operator_name="awx-operator"
-    local operator_deployment="awx-operator-controller"
+    # Labels padronizados para namespace
+    kubectl label namespace "$AWX_NAMESPACE" \
+        app.kubernetes.io/name="$PROJECT_PREFIX" \
+        app.kubernetes.io/instance="$AWX_INSTANCE_NAME" \
+        app.kubernetes.io/environment="$ENVIRONMENT_NAME" \
+        app.kubernetes.io/managed-by="awx-deployment-script" \
+        --overwrite
     
-    log_info "Baixando e customizando manifesto do AWX Operator..."
+    log_info "Instalando AWX Operator com nome padronizado..."
+    helm upgrade --install "$PROJECT_PREFIX-operator" awx-operator/awx-operator \
+        -n "$AWX_NAMESPACE" \
+        --create-namespace \
+        --wait \
+        --timeout=10m \
+        --set nameOverride="$PROJECT_PREFIX-operator" \
+        --set fullnameOverride="$PROJECT_PREFIX-operator-$ENVIRONMENT_NAME"
     
-    # Baixar manifesto oficial
-    curl -s https://raw.githubusercontent.com/ansible/awx-operator/${AWX_OPERATOR_VERSION}/config/default/kustomization.yaml > /tmp/kustomization.yaml
+    step_completed
     
-    # Criar manifesto customizado com nomes fixos
-    cat > /tmp/awx-operator-custom.yaml << EOF
-apiVersion: v1
-kind: Namespace
+    # Criar instância AWX
+    create_awx_instance
+}
+
+create_awx_instance() {
+    next_step "Criação da Instância AWX"
+    
+    log_info "Calculando recursos para containers AWX..."
+    
+    # Calcular recursos baseado no perfil e disponibilidade
+    local web_cpu_req="100m"
+    local web_mem_req="256Mi"
+    local web_cpu_lim="1000m"
+    local web_mem_lim="2Gi"
+    
+    local task_cpu_req="100m"
+    local task_mem_req="256Mi"
+    local task_cpu_lim="2000m"
+    local task_mem_lim="4Gi"
+    
+    if [ "$PERFIL" = "production" ]; then
+        web_cpu_lim="2000m"
+        web_mem_lim="4Gi"
+        task_cpu_lim="4000m"
+        task_mem_lim="8Gi"
+    fi
+    
+    log_info "Criando manifesto AWX com configurações otimizadas..."
+    
+    # Criar manifesto AWX com nomes padronizados
+    cat > /tmp/awx-instance.yaml << EOF
+apiVersion: awx.ansible.com/v1beta1
+kind: AWX
 metadata:
-  name: ${AWX_NAMESPACE}
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${operator_deployment}
-  namespace: ${AWX_NAMESPACE}
+  name: $AWX_INSTANCE_NAME
+  namespace: $AWX_NAMESPACE
   labels:
-    app.kubernetes.io/name: awx-operator
-    app.kubernetes.io/version: "${AWX_OPERATOR_VERSION}"
-    app.kubernetes.io/component: operator
-    app.kubernetes.io/managed-by: kubectl
+    app.kubernetes.io/name: $PROJECT_PREFIX
+    app.kubernetes.io/instance: $AWX_INSTANCE_NAME
+    app.kubernetes.io/environment: $ENVIRONMENT_NAME
+    app.kubernetes.io/component: awx-instance
+    app.kubernetes.io/managed-by: awx-deployment-script
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: awx-operator
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: awx-operator
-        app.kubernetes.io/version: "${AWX_OPERATOR_VERSION}"
-    spec:
-      serviceAccountName: awx-operator
-      containers:
-      - name: manager
-        image: quay.io/ansible/awx-operator:${AWX_OPERATOR_VERSION}
-        resources:
-          limits:
-            cpu: 1000m
-            memory: 768Mi
-          requests:
-            cpu: 100m
-            memory: 256Mi
-        env:
-        - name: WATCH_NAMESPACE
-          value: "${AWX_NAMESPACE}"
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: OPERATOR_NAME
-          value: "${operator_name}"
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: awx-operator
-  namespace: ${AWX_NAMESPACE}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: awx-operator
-rules:
-- apiGroups: [""]
-  resources: ["*"]
-  verbs: ["*"]
-- apiGroups: ["apps"]
-  resources: ["*"]
-  verbs: ["*"]
-- apiGroups: ["awx.ansible.com"]
-  resources: ["*"]
-  verbs: ["*"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: awx-operator
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: awx-operator
-subjects:
-- kind: ServiceAccount
-  name: awx-operator
-  namespace: ${AWX_NAMESPACE}
+  service_type: nodeport
+  nodeport_port: $DEFAULT_HOST_PORT
+  admin_user: $ADMIN_USERNAME
+  admin_email: $ADMIN_EMAIL
+  
+  # Execution Environment personalizado com nome padronizado
+  control_plane_ee_image: localhost:5001/$CUSTOM_EE_NAME:latest
+  
+  # Configuração de réplicas baseada no perfil
+  replicas: $WEB_REPLICAS
+  web_replicas: $WEB_REPLICAS
+  task_replicas: $TASK_REPLICAS
+  
+  # Recursos otimizados para web containers
+  web_resource_requirements:
+    requests:
+      cpu: $web_cpu_req
+      memory: $web_mem_req
+    limits:
+      cpu: $web_cpu_lim
+      memory: $web_mem_lim
+  
+  # Recursos otimizados para task containers
+  task_resource_requirements:
+    requests:
+      cpu: $task_cpu_req
+      memory: $task_mem_req
+    limits:
+      cpu: $task_cpu_lim
+      memory: $task_mem_lim
+  
+  # Configurações de persistência
+  projects_persistence: $ENABLE_PROJECTS_PERSISTENCE
+  projects_storage_size: $PROJECTS_STORAGE_SIZE
+  projects_storage_access_mode: ReadWriteOnce
+  
+  # Configurações do PostgreSQL com nome padronizado
+  postgres_configuration_secret: $AWX_INSTANCE_NAME-postgres-configuration
+  postgres_storage_requirements:
+    requests:
+      storage: $POSTGRES_STORAGE_SIZE
+    limits:
+      storage: $POSTGRES_STORAGE_SIZE
+  
+  # Labels adicionais para todos os recursos
+  extra_labels:
+    environment: $ENVIRONMENT_NAME
+    project: $PROJECT_PREFIX
+    organization: $ORGANIZATION
 EOF
 
-    log_info "Aplicando manifesto customizado..."
-    kubectl apply -f /tmp/awx-operator-custom.yaml
+    # Aplicar manifesto
+    kubectl apply -f /tmp/awx-instance.yaml -n "$AWX_NAMESPACE"
+    rm /tmp/awx-instance.yaml
     
-    # Aguardar operator estar pronto
-    log_info "Aguardando AWX Operator estar pronto..."
-    kubectl wait --for=condition=Available deployment/${operator_deployment} -n "$AWX_NAMESPACE" --timeout=300s
-    
-    # Verificar se está funcionando
-    local pod_count=$(kubectl get pods -n "$AWX_NAMESPACE" -l app.kubernetes.io/name=awx-operator --no-headers | wc -l)
-    if [ "$pod_count" -eq 0 ]; then
-        log_error "Nenhum pod do AWX Operator encontrado"
-        exit 1
-    fi
-    
-    local ready_pods=$(kubectl get pods -n "$AWX_NAMESPACE" -l app.kubernetes.io/name=awx-operator --no-headers | grep -c "Running")
-    if [ "$ready_pods" -eq 0 ]; then
-        log_error "AWX Operator não está em execução"
-        kubectl get pods -n "$AWX_NAMESPACE" -l app.kubernetes.io/name=awx-operator
-        exit 1
-    fi
-    
-    log_success "AWX Operator instalado com nome fixo: $operator_deployment"
-    rm -f /tmp/awx-operator-custom.yaml /tmp/kustomization.yaml
+    step_completed
+    log_success "Instância AWX '$AWX_INSTANCE_NAME' criada com nomes padronizados!"
 }
 
 # ============================
-# MONITORAMENTO AVANÇADO
+# MONITORAMENTO MELHORADO
 # ============================
 
-# Monitorar instalação com feedback em tempo real
-monitor_awx_installation() {
-    log_step "MONITORAMENTO DA INSTALAÇÃO AWX"
+wait_for_awx() {
+    next_step "Aguardando Implantação do AWX"
     
-    local awx_name="awx-${CALCULATED_PROFILE}"
-    local timeout=${POD_WAIT_TIMEOUT:-600}
-    local check_interval=10
+    log_info "Monitorando progresso da implantação..."
+    
+    local timeout=$DEPLOYMENT_TIMEOUT
     local elapsed=0
+    local last_status=""
     
-    log_info "Monitorando instalação do AWX: $awx_name"
-    
-    # Aguardar AWX resource ser criado
-    while ! kubectl get awx "$awx_name" -n "$AWX_NAMESPACE" &>/dev/null; do
-        if [ $elapsed -ge 60 ]; then
-            log_error "Timeout aguardando resource AWX ser criado"
-            exit 1
-        fi
-        sleep 5
-        elapsed=$((elapsed + 5))
-        show_progress $elapsed 60 "Aguardando AWX resource"
-    done
-    
-    echo ""
-    log_success "Resource AWX criado com sucesso"
-    
-    # Monitorar componentes individuais
-    local components=("postgres" "web" "task")
-    
-    for component in "${components[@]}"; do
-        log_info "Aguardando componente: $component"
-        elapsed=0
+    # Aguardar com feedback visual melhorado
+    while [ $elapsed -lt $timeout ]; do
+        # Verificar status dos pods
+        local pod_status=$(kubectl get pods -n "$AWX_NAMESPACE" --no-headers 2>/dev/null | grep "$AWX_INSTANCE_NAME" | head -5)
         
-        while [ $elapsed -lt $timeout ]; do
-            local pod_count=$(kubectl get pods -n "$AWX_NAMESPACE" -l "app.kubernetes.io/name=awx-${CALCULATED_PROFILE},app.kubernetes.io/component=$component" --no-headers 2>/dev/null | wc -l)
-            local ready_count=$(kubectl get pods -n "$AWX_NAMESPACE" -l "app.kubernetes.io/name=awx-${CALCULATED_PROFILE},app.kubernetes.io/component=$component" --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+        if [ -n "$pod_status" ]; then
+            local running_pods=$(echo "$pod_status" | grep -c "Running" || echo "0")
+            local total_pods=$(echo "$pod_status" | wc -l)
             
-            if [ "$pod_count" -gt 0 ] && [ "$ready_count" -eq "$pod_count" ]; then
-                log_success "Componente $component pronto ($ready_count/$pod_count pods)"
-                break
+            # Exibir progresso apenas se houver mudança
+            local current_status="$running_pods/$total_pods pods Running"
+            if [ "$current_status" != "$last_status" ]; then
+                progress_bar $running_pods $total_pods
+                echo -e " - $current_status"
+                last_status="$current_status"
             fi
             
-            show_progress $elapsed $timeout "Componente $component ($ready_count/$pod_count pods prontos)"
-            sleep $check_interval
-            elapsed=$((elapsed + check_interval))
-        done
-        
-        if [ $elapsed -ge $timeout ]; then
-            log_error "Timeout aguardando componente: $component"
-            kubectl get pods -n "$AWX_NAMESPACE" -l "app.kubernetes.io/name=awx-${CALCULATED_PROFILE},app.kubernetes.io/component=$component"
-            exit 1
+            # Verificar se todos os pods estão prontos
+            if [ "$running_pods" -eq "$total_pods" ] && [ "$total_pods" -gt 0 ]; then
+                echo ""
+                log_success "Todos os pods estão funcionando!"
+                break
+            fi
+        else
+            echo -n "."
         fi
+        
+        sleep $PROGRESS_UPDATE_INTERVAL
+        elapsed=$((elapsed + PROGRESS_UPDATE_INTERVAL))
     done
     
-    echo ""
-    log_success "Todos os componentes AWX estão funcionando!"
-}
-
-# ============================
-# INTERFACE DE USUÁRIO MELHORADA
-# ============================
-
-# Menu interativo para configuração
-interactive_setup() {
-    log_step "CONFIGURAÇÃO INTERATIVA"
-    
-    echo -e "${COLORS[CYAN]}Bem-vindo ao $SCRIPT_NAME v$SCRIPT_VERSION!${COLORS[NC]}"
-    echo ""
-    
-    # Mostrar configuração atual
-    echo -e "${COLORS[WHITE]}Configuração atual:${COLORS[NC]}"
-    echo -e "  Cluster: ${COLORS[GREEN]}${CLUSTER_NAME:-auto}${COLORS[NC]}"
-    echo -e "  Porta: ${COLORS[GREEN]}$HOST_PORT${COLORS[NC]}"
-    echo -e "  Namespace: ${COLORS[GREEN]}$AWX_NAMESPACE${COLORS[NC]}"
-    echo ""
-    
-    # Permitir alterações
-    read -p "Deseja alterar alguma configuração? (s/N): " -n 1 -r
-    echo ""
-    
-    if [[ $REPLY =~ ^[Ss]$ ]]; then
-        read -p "Nome do cluster (Enter para auto): " input_cluster
-        [ -n "$input_cluster" ] && CLUSTER_NAME="$input_cluster"
-        
-        read -p "Porta do host [$HOST_PORT]: " input_port
-        if [ -n "$input_port" ] && validate_port "$input_port"; then
-            HOST_PORT="$input_port"
-        fi
-        
-        read -p "Namespace [$AWX_NAMESPACE]: " input_namespace
-        [ -n "$input_namespace" ] && AWX_NAMESPACE="$input_namespace"
-    fi
-    
-    # Confirmar instalação
-    echo ""
-    echo -e "${COLORS[YELLOW]}Configuração final:${COLORS[NC]}"
-    echo -e "  Cluster: ${COLORS[GREEN]}${CLUSTER_NAME:-awx-cluster-$CALCULATED_PROFILE}${COLORS[NC]}"
-    echo -e "  Porta: ${COLORS[GREEN]}$HOST_PORT${COLORS[NC]}"
-    echo -e "  Namespace: ${COLORS[GREEN]}$AWX_NAMESPACE${COLORS[NC]}"
-    echo ""
-    
-    if [ "$CONFIRM_DESTRUCTIVE_OPERATIONS" = true ]; then
-        read -p "Continuar com a instalação? (S/n): " -n 1 -r
+    if [ $elapsed -ge $timeout ]; then
         echo ""
-        if [[ $REPLY =~ ^[Nn]$ ]]; then
-            log_info "Instalação cancelada pelo usuário"
-            exit 0
-        fi
+        log_error "Timeout aguardando implantação do AWX"
+        show_troubleshooting_info
+        exit 1
     fi
+    
+    # Verificação final de saúde
+    kubectl wait --for=condition=Ready pods --all -n "$AWX_NAMESPACE" --timeout=300s
+    step_completed
 }
 
-# Exibir informações finais melhoradas
-show_installation_summary() {
-    log_step "INSTALAÇÃO CONCLUÍDA COM SUCESSO"
+show_troubleshooting_info() {
+    log_header "INFORMAÇÕES PARA TROUBLESHOOTING"
     
-    # Obter informações do cluster
-    local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-    local awx_name="awx-${CALCULATED_PROFILE}"
+    echo -e "${WHITE}Status dos Pods:${NC}"
+    kubectl get pods -n "$AWX_NAMESPACE" -o wide 2>/dev/null || echo "Nenhum pod encontrado"
     
-    # Obter senha
-    local password=""
-    if kubectl get secret "${awx_name}-admin-password" -n "$AWX_NAMESPACE" &>/dev/null; then
-        password=$(kubectl get secret "${awx_name}-admin-password" -n "$AWX_NAMESPACE" -o jsonpath='{.data.password}' | base64 --decode)
+    echo ""
+    echo -e "${WHITE}Events do Namespace:${NC}"
+    kubectl get events -n "$AWX_NAMESPACE" --sort-by='.lastTimestamp' | tail -10
+    
+    echo ""
+    echo -e "${WHITE}Comandos Úteis para Debug:${NC}"
+    echo "  kubectl describe awx $AWX_INSTANCE_NAME -n $AWX_NAMESPACE"
+    echo "  kubectl logs -n $AWX_NAMESPACE deployment/$PROJECT_PREFIX-operator-$ENVIRONMENT_NAME"
+    echo "  kubectl get all -n $AWX_NAMESPACE"
+}
+
+# ============================
+# INFORMAÇÕES FINAIS MELHORADAS
+# ============================
+
+show_final_info() {
+    log_header "🎉 IMPLANTAÇÃO CONCLUÍDA COM SUCESSO"
+    
+    # Obter senha do AWX
+    local awx_password=""
+    local password_secret="$AWX_INSTANCE_NAME-admin-password"
+    
+    if kubectl get secret "$password_secret" -n "$AWX_NAMESPACE" &> /dev/null; then
+        awx_password=$(kubectl get secret "$password_secret" -n "$AWX_NAMESPACE" -o jsonpath='{.data.password}' | base64 --decode)
+    else
+        awx_password="<Aguarde alguns minutos e execute: kubectl get secret $password_secret -n $AWX_NAMESPACE -o jsonpath='{.data.password}' | base64 --decode>"
     fi
     
-    # Obter status dos pods
-    local total_pods=$(kubectl get pods -n "$AWX_NAMESPACE" --no-headers | wc -l)
-    local running_pods=$(kubectl get pods -n "$AWX_NAMESPACE" --no-headers | grep -c "Running" || echo "0")
+    # Obter IP do nó
+    local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
     
     echo ""
-    echo -e "${COLORS[GREEN]}🎉 AWX INSTALADO COM SUCESSO! 🎉${COLORS[NC]}"
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                           AWX DEPLOYMENT SUCCESS                               ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    # Tabela de informações de acesso
-    echo -e "${COLORS[CYAN]}┌─────────────────────────────────────────────────────────────────┐${COLORS[NC]}"
-    echo -e "${COLORS[CYAN]}│${COLORS[WHITE]}                     INFORMAÇÕES DE ACESSO                       ${COLORS[CYAN]}│${COLORS[NC]}"
-    echo -e "${COLORS[CYAN]}├─────────────────────────────────────────────────────────────────┤${COLORS[NC]}"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-15s │ %-45s ${COLORS[CYAN]}│${COLORS[NC]}\n" "URL:" "http://${node_ip}:${HOST_PORT}"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-15s │ %-45s ${COLORS[CYAN]}│${COLORS[NC]}\n" "Usuário:" "admin"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-15s │ %-45s ${COLORS[CYAN]}│${COLORS[NC]}\n" "Senha:" "${password:-'Obtendo...'}"
-    echo -e "${COLORS[CYAN]}└─────────────────────────────────────────────────────────────────┘${COLORS[NC]}"
+    echo -e "${WHITE}📋 INFORMAÇÕES DE ACESSO:${NC}"
+    echo -e "   ${CYAN}URL:${NC} ${GREEN}http://${node_ip}:${DEFAULT_HOST_PORT}${NC}"
+    echo -e "   ${CYAN}Usuário:${NC} ${GREEN}$ADMIN_USERNAME${NC}"
+    echo -e "   ${CYAN}Senha:${NC} ${GREEN}$awx_password${NC}"
     echo ""
     
-    # Tabela de status do sistema
-    echo -e "${COLORS[CYAN]}┌─────────────────────────────────────────────────────────────────┐${COLORS[NC]}"
-    echo -e "${COLORS[CYAN]}│${COLORS[WHITE]}                      STATUS DO SISTEMA                          ${COLORS[CYAN]}│${COLORS[NC]}"
-    echo -e "${COLORS[CYAN]}├─────────────────────────────────────────────────────────────────┤${COLORS[NC]}"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-15s │ %-45s ${COLORS[CYAN]}│${COLORS[NC]}\n" "Cluster:" "${CLUSTER_NAME:-awx-cluster-$CALCULATED_PROFILE}"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-15s │ %-45s ${COLORS[CYAN]}│${COLORS[NC]}\n" "Namespace:" "$AWX_NAMESPACE"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-15s │ %-45s ${COLORS[CYAN]}│${COLORS[NC]}\n" "Perfil:" "$CALCULATED_PROFILE"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-15s │ %-45s ${COLORS[CYAN]}│${COLORS[NC]}\n" "Pods:" "$running_pods/$total_pods rodando"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-15s │ %-45s ${COLORS[CYAN]}│${COLORS[NC]}\n" "CPUs:" "${CALCULATED_CORES} cores"
-    printf "${COLORS[CYAN]}│${COLORS[NC]} %-15s │ %-45s ${COLORS[CYAN]}│${COLORS[NC]}\n" "Memória:" "${CALCULATED_MEM_MB}MB"
-    echo -e "${COLORS[CYAN]}└─────────────────────────────────────────────────────────────────┘${COLORS[NC]}"
+    echo -e "${WHITE}🔧 CONFIGURAÇÃO DO AMBIENTE:${NC}"
+    echo -e "   ${CYAN}Environment:${NC} ${GREEN}$ENVIRONMENT_NAME${NC}"
+    echo -e "   ${CYAN}Cluster:${NC} ${GREEN}$CLUSTER_NAME${NC}"
+    echo -e "   ${CYAN}Namespace:${NC} ${GREEN}$AWX_NAMESPACE${NC}"
+    echo -e "   ${CYAN}AWX Instance:${NC} ${GREEN}$AWX_INSTANCE_NAME${NC}"
     echo ""
     
-    # Comandos úteis
-    echo -e "${COLORS[WHITE]}📋 COMANDOS ÚTEIS:${COLORS[NC]}"
-    echo -e "${COLORS[GRAY]}  # Ver todos os pods${COLORS[NC]}"
-    echo -e "  ${COLORS[CYAN]}kubectl get pods -n $AWX_NAMESPACE${COLORS[NC]}"
-    echo ""
-    echo -e "${COLORS[GRAY]}  # Ver logs do operator (nome fixo)${COLORS[NC]}"
-    echo -e "  ${COLORS[CYAN]}kubectl logs -n $AWX_NAMESPACE deployment/awx-operator-controller${COLORS[NC]}"
-    echo ""
-    echo -e "${COLORS[GRAY]}  # Ver logs do AWX web${COLORS[NC]}"
-    echo -e "  ${COLORS[CYAN]}kubectl logs -n $AWX_NAMESPACE deployment/${awx_name}-web${COLORS[NC]}"
-    echo ""
-    echo -e "${COLORS[GRAY]}  # Ver logs do AWX task${COLORS[NC]}"
-    echo -e "  ${COLORS[CYAN]}kubectl logs -n $AWX_NAMESPACE deployment/${awx_name}-task${COLORS[NC]}"
-    echo ""
-    echo -e "${COLORS[GRAY]}  # Deletar cluster${COLORS[NC]}"
-    echo -e "  ${COLORS[CYAN]}kind delete cluster --name ${CLUSTER_NAME:-awx-cluster-$CALCULATED_PROFILE}${COLORS[NC]}"
-    echo ""
-    echo -e "${COLORS[GRAY]}  # Editar configuração${COLORS[NC]}"
-    echo -e "  ${COLORS[CYAN]}nano $CONFIG_FILE${COLORS[NC]}"
+    echo -e "${WHITE}💻 RECURSOS ALOCADOS:${NC}"
+    echo -e "   ${CYAN}Perfil:${NC} ${GREEN}$PERFIL${NC}"
+    echo -e "   ${CYAN}CPUs Disponíveis:${NC} ${GREEN}$(echo "scale=1; $AVAILABLE_CPU_MILLICORES/1000" | bc) cores${NC}"
+    echo -e "   ${CYAN}Memória Disponível:${NC} ${GREEN}$(echo "$AVAILABLE_MEMORY_MB/1024" | bc)GB${NC}"
+    echo -e "   ${CYAN}Web Réplicas:${NC} ${GREEN}$WEB_REPLICAS${NC}"
+    echo -e "   ${CYAN}Task Réplicas:${NC} ${GREEN}$TASK_REPLICAS${NC}"
     echo ""
     
-    # Status detalhado se verbose
+    echo -e "${WHITE}🚀 COMANDOS ÚTEIS:${NC}"
+    echo -e "   ${CYAN}Status dos pods:${NC} kubectl get pods -n $AWX_NAMESPACE"
+    echo -e "   ${CYAN}Logs AWX web:${NC} kubectl logs -n $AWX_NAMESPACE deployment/$AWX_INSTANCE_NAME-web"
+    echo -e "   ${CYAN}Logs AWX task:${NC} kubectl logs -n $AWX_INSTANCE_NAME deployment/$AWX_INSTANCE_NAME-task"
+    echo -e "   ${CYAN}Logs operator:${NC} kubectl logs -n $AWX_NAMESPACE deployment/$PROJECT_PREFIX-operator-$ENVIRONMENT_NAME"
+    echo -e "   ${CYAN}Deletar cluster:${NC} kind delete cluster --name $CLUSTER_NAME"
+    echo ""
+    
+    echo -e "${WHITE}📁 ARQUIVOS DE CONFIGURAÇÃO:${NC}"
+    echo -e "   ${CYAN}Config:${NC} $CONFIG_FILE"
+    echo -e "   ${CYAN}Script:${NC} $0"
+    echo ""
+    
     if [ "$VERBOSE" = true ]; then
-        echo -e "${COLORS[WHITE]}🔍 STATUS DETALHADO DOS PODS:${COLORS[NC]}"
-        kubectl get pods -n "$AWX_NAMESPACE" -o wide
+        echo -e "${WHITE}🔍 STATUS DETALHADO DOS RECURSOS:${NC}"
+        kubectl get all -n "$AWX_NAMESPACE" -o wide
         echo ""
     fi
     
     # Salvar informações em arquivo
-    cat > "${HOME}/awx-installation-info.txt" << EOF
-AWX Installation Summary
-========================
-Date: $(date)
-URL: http://${node_ip}:${HOST_PORT}
-Username: admin
-Password: ${password}
-Cluster: ${CLUSTER_NAME:-awx-cluster-$CALCULATED_PROFILE}
-Namespace: ${AWX_NAMESPACE}
-Profile: ${CALCULATED_PROFILE}
-Pods: ${running_pods}/${total_pods} running
+    save_deployment_info "$node_ip" "$awx_password"
+}
 
-Configuration file: ${CONFIG_FILE}
+save_deployment_info() {
+    local node_ip=$1
+    local password=$2
+    local info_file="$SCRIPT_DIR/awx-deployment-info.txt"
+    
+    cat > "$info_file" << EOF
+AWX Deployment Information
+==========================
+Generated: $(date)
+
+Access Information:
+- URL: http://${node_ip}:${DEFAULT_HOST_PORT}
+- Username: $ADMIN_USERNAME
+- Password: $password
+
+Environment Configuration:
+- Environment: $ENVIRONMENT_NAME
+- Cluster: $CLUSTER_NAME
+- Namespace: $AWX_NAMESPACE
+- AWX Instance: $AWX_INSTANCE_NAME
+
+Resource Allocation:
+- Profile: $PERFIL
+- Available CPUs: $(echo "scale=1; $AVAILABLE_CPU_MILLICORES/1000" | bc) cores
+- Available Memory: $(echo "$AVAILABLE_MEMORY_MB/1024" | bc)GB
+- Web Replicas: $WEB_REPLICAS
+- Task Replicas: $TASK_REPLICAS
+
+Useful Commands:
+- kubectl get pods -n $AWX_NAMESPACE
+- kubectl logs -n $AWX_NAMESPACE deployment/$AWX_INSTANCE_NAME-web
+- kubectl logs -n $AWX_NAMESPACE deployment/$AWX_INSTANCE_NAME-task
+- kind delete cluster --name $CLUSTER_NAME
 EOF
     
-    log_info "Informações salvas em: ${HOME}/awx-installation-info.txt"
+    log_success "Informações salvas em: $info_file"
 }
 
 # ============================
-# FUNCÕES ORIGINAIS MANTIDAS
-# ============================
-
-# [Manter todas as funções de cálculo de recursos originais]
-# [Manter funções de validação]
-# [Manter funções de instalação de dependências]
-# [etc...]
-
-# ============================
-# EXECUÇÃO PRINCIPAL MELHORADA
+# FUNÇÃO PRINCIPAL
 # ============================
 
 main() {
-    # Carregar configuração
+    # Inicializar sistema de progresso
+    init_progress 8
+    
+    # Carregar e validar configurações
+    next_step "Carregamento de Configurações"
     load_config
+    validate_config
+    step_completed
     
-    # Parse dos argumentos (manter original)
-    while getopts "c:p:f:m:dvhio" opt; do
-        case ${opt} in
-            i)
-                interactive_setup
-                ;;
-            o)
-                log_info "Editando arquivo de configuração..."
-                ${EDITOR:-nano} "$CONFIG_FILE"
-                load_config
-                ;;
-            # [outros casos mantidos]
-        esac
-    done
+    # Inicializar recursos
+    next_step "Detecção de Recursos do Sistema"
+    initialize_resources
+    step_completed
     
-    # Validar sistema
-    validate_system_requirements
+    # Instalar dependências (implementar função similar ao original)
+    next_step "Instalação de Dependências"
+    install_dependencies  # Manter função original
+    step_completed
     
-    # Mostrar recursos do sistema
-    show_system_resources
+    # Criar cluster Kind (implementar função similar ao original)
+    next_step "Criação do Cluster Kind"
+    create_kind_cluster  # Manter função original
+    step_completed
     
-    # Confirmar se não foi modo interativo
-    if [ "$INTERACTIVE" != true ]; then
-        interactive_setup
-    fi
+    # Criar Execution Environment (implementar função similar ao original)
+    next_step "Criação do Execution Environment"
+    create_execution_environment  # Manter função original
+    step_completed
     
-    # Executar instalação com feedback melhorado
-    log_step "INICIANDO INSTALAÇÃO COMPLETA"
+    # Instalar AWX
+    install_awx
     
-    local total_steps=7
-    local current_step=0
+    # Aguardar implantação
+    wait_for_awx
     
-    # Passo 1: Dependências
-    ((current_step++))
-    show_progress $current_step $total_steps "Instalando dependências"
-    install_dependencies
+    # Exibir informações finais
+    next_step "Finalização e Relatório"
+    show_final_info
+    step_completed
     
-    # Passo 2: Cluster
-    ((current_step++))
-    show_progress $current_step $total_steps "Criando cluster Kind"
-    create_kind_cluster
-    
-    # Passo 3: Registry
-    ((current_step++))
-    show_progress $current_step $total_steps "Configurando registry"
-    start_local_registry
-    
-    # Passo 4: Execution Environment
-    ((current_step++))
-    show_progress $current_step $total_steps "Criando Execution Environment"
-    create_execution_environment
-    
-    # Passo 5: AWX Operator
-    ((current_step++))
-    show_progress $current_step $total_steps "Instalando AWX Operator"
-    install_awx_operator_fixed
-    
-    # Passo 6: AWX Instance
-    ((current_step++))
-    show_progress $current_step $total_steps "Criando instância AWX"
-    create_awx_instance
-    
-    # Passo 7: Monitoramento
-    ((current_step++))
-    show_progress $current_step $total_steps "Finalizando instalação"
-    monitor_awx_installation
-    
-    # Exibir resumo final
-    show_installation_summary
+    echo ""
+    log_success "🎉 Processo concluído com sucesso em $(date)!"
 }
 
-# Executar função principal
-main "$@"
+# ============================
+# PARSING DE ARGUMENTOS E EXECUÇÃO
+# ============================
+
+show_help() {
+    cat << EOF
+${CYAN}=== Script de Implantação AWX Melhorado ===${NC}
+
+${WHITE}USO:${NC}
+    $0 [OPÇÕES]
+
+${WHITE}OPÇÕES:${NC}
+    ${GREEN}-e AMBIENTE${NC}   Nome do ambiente (ex: prod, dev, test)
+    ${GREEN}-p PORTA${NC}      Porta do host para acessar AWX
+    ${GREEN}-c CLUSTER${NC}    Nome do cluster Kind (opcional)
+    ${GREEN}-f CPU${NC}        Forçar número de CPUs
+    ${GREEN}-m MEMORIA${NC}    Forçar quantidade de memória em MB
+    ${GREEN}-d${NC}            Instalar apenas dependências
+    ${GREEN}-v${NC}            Modo verboso (debug)
+    ${GREEN}-h${NC}            Exibir esta ajuda
+
+${WHITE}CONFIGURAÇÃO:${NC}
+    O script usa o arquivo 'awx-config.conf' para configurações.
+    Se não existir, um arquivo padrão será criado automaticamente.
+
+${WHITE}EXEMPLOS:${NC}
+    $0                           # Usar configurações padrão
+    $0 -e production -p 8080     # Ambiente production na porta 8080
+    $0 -f 4 -m 8192 -v          # Forçar recursos com modo verboso
+    $0 -d                        # Instalar apenas dependências
+
+${WHITE}RECURSOS:${NC}
+    O script detecta automaticamente os recursos e calcula a configuração
+    ideal baseada no ambiente detectado/especificado.
+EOF
+}
+
+# Parse das opções
+INSTALL_DEPS_ONLY=false
+VERBOSE=${VERBOSE_DEFAULT:-false}
+
+while getopts "e:p:c:f:m:dvh" opt; do
+    case ${opt} in
+        e)
+            ENVIRONMENT_NAME="$OPTARG"
+            ;;
+        p)
+            DEFAULT_HOST_PORT="$OPTARG"
+            ;;
+        c)
+            CLUSTER_NAME="$OPTARG"
+            ;;
+        f)
+            FORCE_CPU="$OPTARG"
+            ;;
+        m)
+            FORCE_MEM_MB="$OPTARG"
+            ;;
+        d)
+            INSTALL_DEPS_ONLY=true
+            ;;
+        v)
+            VERBOSE=true
+            ;;
+        h)
+            show_help
+            exit 0
+            ;;
+        *)
+            log_error "Opção inválida: -$OPTARG"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+# Execução principal
+if [ "$INSTALL_DEPS_ONLY" = true ]; then
+    log_header "INSTALAÇÃO DE DEPENDÊNCIAS"
+    install_dependencies
+    log_success "Dependências instaladas! Execute sem -d para continuar."
+else
+    main
+fi

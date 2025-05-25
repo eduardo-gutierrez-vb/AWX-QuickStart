@@ -652,8 +652,6 @@ main() {
     # Carregar configurações
     load_config
     
-    # Processar argumentos
-    parse_arguments "$@"
     
     # Inicializar sistema
     detect_system_resources
@@ -684,4 +682,4 @@ main() {
 }
 
 # Executar função principal
-main "$@"
+main

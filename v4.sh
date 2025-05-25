@@ -43,7 +43,7 @@ next_step() {
     echo ""
     echo -e "${CYAN}[ETAPA $CURRENT_STEP/$TOTAL_STEPS - $percentage%]${NC} ${WHITE}$step_name${NC}"
     echo -e "${GRAY}$(date '+%Y-%m-%d %H:%M:%S')${NC}"
-    echo -e "${BLUE}${'='*60}${NC}"
+    echo -e "${BLUE}$(printf '=%.0s' {1..60})${NC}"
 }
 
 step_completed() {
@@ -75,9 +75,9 @@ log_debug() {
 
 log_header() {
     echo ""
-    echo -e "${CYAN}${'='*80}${NC}"
+    echo -e "${CYAN}$(printf '=%.0s' {1..80})${NC}"
     echo -e "${WHITE}$1${NC}"
-    echo -e "${CYAN}${'='*80}${NC}"
+    echo -e "${CYAN}$(printf '=%.0s' {1..80})${NC}"
 }
 
 progress_bar() {

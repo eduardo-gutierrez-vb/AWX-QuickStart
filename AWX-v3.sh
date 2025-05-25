@@ -42,6 +42,22 @@ log_header() {
     echo -e "${CYAN}================================${NC}"
 }
 
+log_subheader() {
+    echo -e "${CYAN}--- $1 ---${NC}"
+}
+
+# ============================
+# CONFIGURAÇÃO E CONSTANTES
+# ============================
+
+# Fatores de segurança para cálculo de recursos
+SAFETY_FACTOR_PROD=70
+SAFETY_FACTOR_DEV=80
+
+# Portas padrão
+DEFAULT_HOST_PORT=8080
+REGISTRY_PORT=5001
+
 # ============================
 # VALIDAÇÃO E UTILITÁRIOS
 # ============================
@@ -86,6 +102,53 @@ validate_memory() {
         return 1
     fi
     return 0
+}
+
+# Adicione estas funções no início do script
+validate_environment() {
+    log_header "VERIFICAÇÃO DE AMBIENTE"
+    
+    # 1. Verificar porta obrigatoriamente
+    check_port_availability "$HOST_PORT"
+    
+    # 2. Verificar e remover clusters conflitantes
+    if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
+        log_warning "Removendo cluster existente '${CLUSTER_NAME}'..."
+        kind delete cluster --name "$CLUSTER_NAME"
+        sleep 15  # Tempo para limpeza completa
+    fi
+    
+    # 3. Limpar containers órfãos
+    docker rm -f $(docker ps -aq --filter "label=io.x-k8s.kind.cluster=${CLUSTER_NAME}") 2>/dev/null || true
+    
+    # 4. Verificar redes residuais
+    if docker network inspect kind >/dev/null 2>&1; then
+        log_info "Removendo rede kind residual..."
+        docker network rm kind
+    fi
+}
+
+check_port_availability() {
+    local port=$1
+    log_subheader "VERIFICANDO PORTA $port"
+    
+    # Verificar processos locais
+    local pid=$(lsof -t -i :$port)
+    if [ -n "$pid" ]; then
+        log_error "Conflito de porta detectado:"
+        lsof -i :$port
+        log_info "Execute para liberar: kill -9 $pid"
+        exit 1
+    fi
+    
+    # Verificar containers Docker
+    local container=$(docker ps --format '{{.Names}}' | grep ".*${port}->${port}/tcp")
+    if [ -n "$container" ]; then
+        log_error "Container Docker usando a porta:"
+        docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep "$port"
+        log_info "Execute para liberar: docker rm -f $container"
+        exit 1
+    fi
 }
 
 # ============================
@@ -198,35 +261,6 @@ calculate_memory_reserved() {
     echo $reserved_mb
 }
 
-# Calcula recursos disponíveis considerando overhead do sistema
-calculate_available_resources() {
-    local total_cores=$1
-    local total_mem_mb=$2
-    local profile=$3
-
-    # Calcular reservas usando fórmulas otimizadas
-    local cpu_reserved_millicores=$(calculate_cpu_reserved "$total_cores")
-    local mem_reserved_mb=$(calculate_memory_reserved "$total_mem_mb")
-
-    # Recursos disponíveis após reservas
-    local available_cpu=$((total_cores * 1000 - cpu_reserved_millicores))
-    local available_mem=$((total_mem_mb - mem_reserved_mb))
-
-    # Aplicar fator de segurança conforme ambiente
-    local safety_factor=70
-    [ "$profile" = "dev" ] && safety_factor=80
-
-    available_cpu=$((available_cpu * safety_factor / 100))
-    available_mem=$((available_mem * safety_factor / 100))
-
-    # Garantir valores mínimos operacionais
-    [ "$available_cpu" -lt 500 ] && available_cpu=500  # 0.5 core mínimo
-    [ "$available_mem" -lt 512 ] && available_mem=512   # 512MB mínimo
-
-    echo "AVAILABLE_CPU_MILLICORES=$available_cpu"
-    echo "AVAILABLE_MEMORY_MB=$available_mem"
-}
-
 # Calcula réplicas baseado no perfil e recursos
 calculate_replicas() {
     local profile=$1
@@ -249,7 +283,7 @@ calculate_replicas() {
                 replicas=$base_replicas
                 ;;
         esac
-
+        
         # Limites operacionais
         [ "$replicas" -lt 2 ] && replicas=2  # Mínimo 2 em produção
         [ "$replicas" -gt 10 ] && replicas=10 # Máximo 10 por serviço
@@ -263,10 +297,74 @@ calculate_replicas() {
 }
 
 # ============================
-# INICIALIZAÇÃO DE RECURSOS
+# CÁLCULO DE RECURSOS CORRIGIDO
 # ============================
 
-# Função para detectar recursos iniciais e definir perfil
+calculate_resources_with_feedback() {
+    local total_cores=$1
+    local total_mem_mb=$2
+    local profile=$3
+    
+    log_subheader "ANÁLISE DETALHADA DE RECURSOS"
+    
+    # Mostrar recursos detectados
+    log_info "Recursos do Sistema Detectados:"
+    log_info "   CPUs Totais: ${GREEN}${total_cores}${NC} cores"
+    log_info "   Memória Total: ${GREEN}${total_mem_mb}MB${NC} ($(echo "scale=1; $total_mem_mb/1024" | bc -l)GB)"
+    
+    # Calcular reservas do sistema
+    local cpu_reserved_millicores=$(calculate_cpu_reserved "$total_cores")
+    local mem_reserved_mb=$(calculate_memory_reserved "$total_mem_mb")
+    
+    log_info "Reservas do Sistema (baseado em padrões GKE/EKS):"
+    log_info "   CPU Reservada: ${YELLOW}${cpu_reserved_millicores}m${NC} ($(echo "scale=2; $cpu_reserved_millicores/1000" | bc -l) cores)"
+    log_info "   Memória Reservada: ${YELLOW}${mem_reserved_mb}MB${NC} ($(echo "scale=1; $mem_reserved_mb/1024" | bc -l)GB)"
+    
+    # Aplicar fator de segurança
+    local safety_factor=$SAFETY_FACTOR_PROD
+    [ "$profile" = "dev" ] && safety_factor=$SAFETY_FACTOR_DEV
+    
+    log_info "Fator de Segurança Aplicado: ${CYAN}${safety_factor}%${NC} (perfil: $profile)"
+    
+    # Calcular recursos finais
+    local available_cpu=$((total_cores * 1000 - cpu_reserved_millicores))
+    local available_mem=$((total_mem_mb - mem_reserved_mb))
+    
+    available_cpu=$((available_cpu * safety_factor / 100))
+    available_mem=$((available_mem * safety_factor / 100))
+    
+    # Garantir valores mínimos operacionais
+    [ "$available_cpu" -lt 500 ] && available_cpu=500  # 0.5 core mínimo
+    [ "$available_mem" -lt 512 ] && available_mem=512   # 512MB mínimo
+    
+    log_success "Recursos Disponíveis para AWX:"
+    log_success "   > CPU Disponível: ${GREEN}${available_cpu}m${NC} ($(echo "scale=1; $available_cpu/1000" | bc -l) cores)"
+    log_success "   > Memória Disponível: ${GREEN}${available_mem}MB${NC} ($(echo "scale=1; $available_mem/1024" | bc -l)GB)"
+    
+    # Calcular réplicas
+    local web_replicas=$(calculate_replicas "$profile" "$available_cpu" "web")
+    local task_replicas=$(calculate_replicas "$profile" "$available_cpu" "task")
+    
+    log_success "Configuração Final de Réplicas:"
+    log_success "   Web Réplicas: ${GREEN}$web_replicas${NC}"
+    log_success "   Task Réplicas: ${GREEN}$task_replicas${NC}"
+    
+    # Exportar variáveis calculadas - CORREÇÃO CRÍTICA
+    export AVAILABLE_CPU_MILLICORES=$available_cpu
+    export AVAILABLE_MEMORY_MB=$available_mem
+    export WEB_REPLICAS=$web_replicas
+    export TASK_REPLICAS=$task_replicas
+    export CORES=$total_cores
+    export MEM_MB=$total_mem_mb
+    export PERFIL=$profile
+}
+
+
+
+# ============================
+# INICIALIZAÇÃO DE RECURSOS CORRIGIDA
+# ============================
+
 initialize_resources() {
     # Detectar recursos (considerando valores forçados se existirem)
     CORES=$(detect_cores)
@@ -275,13 +373,11 @@ initialize_resources() {
     # Determinar perfil baseado nos recursos
     PERFIL=$(determine_profile "$CORES" "$MEM_MB")
     
-    # Calcular réplicas baseado no perfil
-    calculate_replicas "$PERFIL" "$CORES"
-    
-    # Calcular recursos disponíveis
-    calculate_available_resources "$CORES" "$MEM_MB" "$PERFIL"
+    # Calcular recursos disponíveis COM feedback
+    calculate_resources_with_feedback "$CORES" "$MEM_MB" "$PERFIL"
     
     log_debug "Recursos inicializados: PERFIL=$PERFIL, CORES=$CORES, MEM_MB=${MEM_MB}MB"
+    log_debug "Variáveis exportadas: WEB_REPLICAS=$WEB_REPLICAS, TASK_REPLICAS=$TASK_REPLICAS"
 }
 
 # ============================
@@ -297,7 +393,7 @@ ${WHITE}USO:${NC}
 
 ${WHITE}OPÇÕES:${NC}
     ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: será calculado baseado no perfil)
-    ${GREEN}-p PORTA${NC}     Porta do host para acessar AWX (padrão: 30080)
+    ${GREEN}-p PORTA${NC}     Porta do host para acessar AWX (padrão: 8080)
     ${GREEN}-f CPU${NC}       Forçar número de CPUs (ex: 4)
     ${GREEN}-m MEMORIA${NC}   Forçar quantidade de memória em MB (ex: 8192)
     ${GREEN}-d${NC}           Instalar apenas dependências
@@ -356,7 +452,7 @@ install_dependencies() {
     sudo apt-get install -y \
         python3 python3-pip python3-venv git curl wget \
         ca-certificates gnupg2 lsb-release build-essential \
-        software-properties-common apt-transport-https
+        software-properties-common apt-transport-https bc
     
     # Instalar Python 3.9
     install_python39
@@ -558,14 +654,14 @@ start_local_registry() {
     fi
     
     log_info "Iniciando registry local para Kind..."
-    docker run -d --restart=always -p 5001:5000 --name kind-registry registry:2
+    docker run -d --restart=always -p ${REGISTRY_PORT}:5000 --name kind-registry registry:2
     
     # Conectar ao network do kind se existir
     if docker network ls | grep -q kind; then
         docker network connect kind kind-registry 2>/dev/null || true
     fi
     
-    log_success "Registry local iniciado em localhost:5001"
+    log_success "Registry local iniciado em localhost:${REGISTRY_PORT}"
 }
 
 # ============================
@@ -574,11 +670,11 @@ start_local_registry() {
 
 create_kind_cluster() {
     log_header "CRIAÇÃO DO CLUSTER KIND"
-    
     # Verificar cluster existente
     if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
         log_warning "Cluster '$CLUSTER_NAME' já existe. Deletando..."
         kind delete cluster --name "$CLUSTER_NAME"
+        validate_environment
     fi
     
     log_info "Criando cluster Kind '$CLUSTER_NAME'..."
@@ -590,7 +686,7 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
   extraPortMappings:
-  - containerPort: ${HOST_PORT}
+  - containerPort: 30000
     hostPort: ${HOST_PORT}
     protocol: TCP
   kubeadmConfigPatches:
@@ -626,24 +722,38 @@ EOF
     log_info "Aguardando cluster estar pronto..."
     kubectl wait --for=condition=Ready nodes --all --timeout=300s
     
-    # Conectar registry ao cluster
+    # Configurar registry no cluster
+    configure_registry_for_cluster
+}
+
+# Função corrigida para configurar registry - CORREÇÃO DO CONFIGMAP
+configure_registry_for_cluster() {
+    log_subheader "Configurando Registry Local"
+    
+    # Conectar registry ao network do kind
     if ! docker network ls | grep -q kind; then
         docker network create kind
     fi
     docker network connect kind kind-registry 2>/dev/null || true
     
-    # Configurar registry no cluster
+    # Configurar registry no cluster - YAML CORRIGIDO
     kubectl apply -f - << EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: local-registry-hosting
   namespace: kube-public
+  labels:
+    app.kubernetes.io/name: "awx"
+    app.kubernetes.io/component: "registry-config"
+    app.kubernetes.io/managed-by: "awx-deploy-script"
 data:
   localRegistryHosting.v1: |
-    host: "localhost:5001"
+    host: "localhost:${REGISTRY_PORT}"
     help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
 EOF
+    
+    log_success "Registry configurado no cluster"
 }
 
 # ============================
@@ -713,13 +823,13 @@ EOF
     # Construir e enviar imagem
     log_info "Construindo Execution Environment personalizado..."
     if [ "$VERBOSE" = true ]; then
-        ansible-builder build -t localhost:5001/awx-custom-ee:latest -f execution-environment.yml --verbosity 2
+        ansible-builder build -t localhost:${REGISTRY_PORT}/awx-custom-ee:latest -f execution-environment.yml --verbosity 2
     else
-        ansible-builder build -t localhost:5001/awx-custom-ee:latest -f execution-environment.yml
+        ansible-builder build -t localhost:${REGISTRY_PORT}/awx-custom-ee:latest -f execution-environment.yml
     fi
     
     log_info "Enviando imagem para registry local..."
-    docker push localhost:5001/awx-custom-ee:latest
+    docker push localhost:${REGISTRY_PORT}/awx-custom-ee:latest
     
     # Limpar diretório temporário
     cd /
@@ -755,28 +865,56 @@ install_awx() {
     create_awx_instance
 }
 
+# Função corrigida para calcular recursos AWX dinamicamente
+calculate_awx_resources() {
+    # Usar variáveis calculadas anteriormente
+    local available_cpu=$AVAILABLE_CPU_MILLICORES
+    local available_mem=$AVAILABLE_MEMORY_MB
+
+    # Converter milicores para cálculos
+    local available_cores=$((available_cpu / 1000))
+    
+    # Cálculos dinâmicos baseados em porcentagens dos recursos disponíveis
+    local web_cpu_req="$((available_cpu * 5 / 100))m"    # 5% do CPU disponível
+    local web_cpu_lim="$((available_cpu * 30 / 100))m"   # 30% do CPU disponível
+    local web_mem_req="$((available_mem * 5 / 100))Mi"   # 5% da memória disponível
+    local web_mem_lim="$((available_mem * 25 / 100))Mi"  # 25% da memória disponível
+    
+    local task_cpu_req="$((available_cpu * 10 / 100))m"   # 10% do CPU disponível
+    local task_cpu_lim="$((available_cpu * 60 / 100))m"   # 60% do CPU disponível
+    local task_mem_req="$((available_mem * 10 / 100))Mi"  # 10% da memória disponível
+    local task_mem_lim="$((available_mem * 50 / 100))Mi"  # 50% da memória disponível
+    
+    # Ajustar para valores mínimos operacionais
+    [ "${web_cpu_req%m}" -lt 50 ] && web_cpu_req="50m"
+    [ "${web_mem_req%Mi}" -lt 128 ] && web_mem_req="128Mi"
+    [ "${task_cpu_req%m}" -lt 50 ] && task_cpu_req="50m"
+    [ "${task_mem_req%Mi}" -lt 128 ] && task_mem_req="128Mi"
+    
+    # Exportar valores calculados
+    export AWX_WEB_CPU_REQ="$web_cpu_req"
+    export AWX_WEB_CPU_LIM="$web_cpu_lim"
+    export AWX_WEB_MEM_REQ="$web_mem_req"
+    export AWX_WEB_MEM_LIM="$web_mem_lim"
+    export AWX_TASK_CPU_REQ="$task_cpu_req"
+    export AWX_TASK_CPU_LIM="$task_cpu_lim"
+    export AWX_TASK_MEM_REQ="$task_mem_req"
+    export AWX_TASK_MEM_LIM="$task_mem_lim"
+    
+    log_debug "Recursos AWX calculados dinamicamente:"
+    log_debug "  Web CPU: $web_cpu_req - $web_cpu_lim"
+    log_debug "  Web Mem: $web_mem_req - $web_mem_lim"
+    log_debug "  Task CPU: $task_cpu_req - $task_cpu_lim"
+    log_debug "  Task Mem: $task_mem_req - $task_mem_lim"
+}
+
 create_awx_instance() {
     log_info "Criando instância AWX..."
     
-    # Calcular recursos para AWX baseado no perfil
-    local awx_web_cpu_req="50m"
-    local awx_web_mem_req="128Mi"
-    local awx_web_cpu_lim="500m"
-    local awx_web_mem_lim="1Gi"
+    # Calcular recursos AWX dinamicamente
+    calculate_awx_resources
     
-    local awx_task_cpu_req="50m"
-    local awx_task_mem_req="128Mi"
-    local awx_task_cpu_lim="1000m"
-    local awx_task_mem_lim="2Gi"
-    
-    if [ "$PERFIL" = "prod" ]; then
-        awx_web_cpu_lim="1000m"
-        awx_web_mem_lim="4Gi"
-        awx_task_cpu_lim="4000m"
-        awx_task_mem_lim="4Gi"
-    fi
-    
-    # Criar manifesto AWX com recursos calculados
+    # Criar manifesto AWX com recursos calculados DINAMICAMENTE
     cat > /tmp/awx-instance.yaml << EOF
 apiVersion: awx.ansible.com/v1beta1
 kind: AWX
@@ -790,30 +928,30 @@ spec:
   admin_email: admin@example.com
   
   # Execution Environment personalizado
-  control_plane_ee_image: localhost:5001/awx-custom-ee:latest
+  control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-custom-ee:latest
   
   # Configuração de réplicas baseada no perfil
   replicas: ${WEB_REPLICAS}
   web_replicas: ${WEB_REPLICAS}
   task_replicas: ${TASK_REPLICAS}
   
-  # Recursos para web containers
+  # Recursos para web containers - VALORES CALCULADOS DINAMICAMENTE
   web_resource_requirements:
     requests:
-      cpu: ${awx_web_cpu_req}
-      memory: ${awx_web_mem_req}
+      cpu: ${AWX_WEB_CPU_REQ}
+      memory: ${AWX_WEB_MEM_REQ}
     limits:
-      cpu: ${awx_web_cpu_lim}
-      memory: ${awx_web_mem_lim}
+      cpu: ${AWX_WEB_CPU_LIM}
+      memory: ${AWX_WEB_MEM_LIM}
   
-  # Recursos para task containers
+  # Recursos para task containers - VALORES CALCULADOS DINAMICAMENTE
   task_resource_requirements:
     requests:
-      cpu: ${awx_task_cpu_req}
-      memory: ${awx_task_mem_req}
+      cpu: ${AWX_TASK_CPU_REQ}
+      memory: ${AWX_TASK_MEM_REQ}
     limits:
-      cpu: ${awx_task_cpu_lim}
-      memory: ${awx_task_mem_lim}
+      cpu: ${AWX_TASK_CPU_LIM}
+      memory: ${AWX_TASK_MEM_LIM}
   
   # Persistência de projetos
   projects_persistence: true
@@ -833,7 +971,7 @@ EOF
     kubectl apply -f /tmp/awx-instance.yaml -n "$AWX_NAMESPACE"
     rm /tmp/awx-instance.yaml
     
-    log_success "Instância AWX criada!"
+    log_success "Instância AWX criada com recursos calculados dinamicamente!"
 }
 
 # ============================
@@ -919,6 +1057,12 @@ show_final_info() {
     log_info "   Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
     log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
     echo ""
+    log_info "📊 RECURSOS ALOCADOS:"
+    log_info "   Web CPU: ${GREEN}${AWX_WEB_CPU_REQ} - ${AWX_WEB_CPU_LIM}${NC}"
+    log_info "   Web Mem: ${GREEN}${AWX_WEB_MEM_REQ} - ${AWX_WEB_MEM_LIM}${NC}"
+    log_info "   Task CPU: ${GREEN}${AWX_TASK_CPU_REQ} - ${AWX_TASK_CPU_LIM}${NC}"
+    log_info "   Task Mem: ${GREEN}${AWX_TASK_MEM_REQ} - ${AWX_TASK_MEM_LIM}${NC}"
+    echo ""
     log_info "🚀 COMANDOS ÚTEIS:"
     log_info "   Ver pods: ${CYAN}kubectl get pods -n $AWX_NAMESPACE${NC}"
     log_info "   Ver logs web: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-web${NC}"
@@ -937,20 +1081,19 @@ show_final_info() {
 # ============================
 
 # Valores padrão que não dependem do perfil
-DEFAULT_HOST_PORT=8080
 INSTALL_DEPS_ONLY=false
-VERBOSE=false
+VERBOSE=true
 
 # Variáveis de recursos (pode forçar)
 FORCE_CPU=""
 FORCE_MEM_MB=""
 
 # Inicializar recursos ANTES do parsing das opções
-# para que possamos usar essas informações nas opções
 initialize_resources
 
 # Definir valores padrão que dependem do perfil
 DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
+DEFAULT_HOST_PORT=$DEFAULT_HOST_PORT
 
 # Parse das opções da linha de comando
 while getopts "c:p:f:m:dvh" opt; do
@@ -1020,13 +1163,14 @@ log_info "💻 Recursos do Sistema:"
 log_info "   CPUs: ${GREEN}$CORES${NC}"
 log_info "   Memória: ${GREEN}${MEM_MB}MB${NC}"
 log_info "   Perfil: ${GREEN}$PERFIL${NC}"
-log_info "   Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
-log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
 
-log_info "🎯 Configuração:"
+log_info "🎯 Configuração de Implantação:"
+log_info "   Ambiente: ${GREEN}$PERFIL${NC}"
 log_info "   Cluster: ${GREEN}$CLUSTER_NAME${NC}"
 log_info "   Porta: ${GREEN}$HOST_PORT${NC}"
 log_info "   Namespace: ${GREEN}$AWX_NAMESPACE${NC}"
+log_info "   Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
+log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
 log_info "   Verbose: ${GREEN}$VERBOSE${NC}"
 
 # Instalar dependências

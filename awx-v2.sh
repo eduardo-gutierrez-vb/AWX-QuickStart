@@ -200,7 +200,7 @@ additional_build_steps:
     - RUN sed -i 's|stream/8|8.5.2111|g' /etc/yum.repos.d/CentOS-*
     - RUN dnf clean all
     - RUN dnf makecache
-
+EOF
 
 # Construção da imagem EE
 echo "Construindo e enviando EE..."
@@ -212,7 +212,7 @@ cd ~
 # INSTALAÇÃO DO AWX
 # ============================
 echo "Instalando o AWX Operator..."
-helm repo add awx-operator https://ansible-community.github.io/awx-operator-helm/ || true
+helm repo add awx-operator https://ansible-community.github.io/awx-operator-helm/
 helm repo update
 
 cat <<EOF > awx-instance.yaml

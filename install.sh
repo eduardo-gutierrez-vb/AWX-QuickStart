@@ -161,9 +161,6 @@ validate_memory() {
 validate_environment() {
     log_header "VERIFICAÇÃO DE AMBIENTE"
     
-    # 1. Verificar porta obrigatoriamente
-    check_port_availability "$HOST_PORT"
-    
     # 2. Verificar e remover clusters conflitantes
     if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
         log_warning "Removendo cluster existente '${CLUSTER_NAME}'..."
@@ -190,7 +187,6 @@ check_port_availability() {
     if [ -n "$pid" ]; then
         log_error "Conflito de porta detectado:"
         lsof -i :$port
-        validate_environment
         log_info "Execute para liberar: kill -9 $pid"
         exit 1
     fi

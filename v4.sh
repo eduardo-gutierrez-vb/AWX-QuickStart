@@ -689,74 +689,153 @@ version: 3
 images:
   base_image:
     name: quay.io/centos/centos:stream9
+
 dependencies:
-  python_interpreter:
-    package_system: python3.11
-    python_path: /usr/bin/python3.11
   ansible_core:
-    # Require minimum of 2.15 to get ansible-inventory --limit option
-    package_pip: ansible-core>=2.15.0rc2,<2.16
+    package_pip: ansible-core>=2.16.0
   ansible_runner:
     package_pip: ansible-runner
+  
   galaxy: |
-    ---
     collections:
-      - name: awx.awx
-      - name: azure.azcollection
-        version: ">=2.1.0"
-      - name: amazon.aws
-      - name: theforeman.foreman
-      - name: google.cloud
-      - name: openstack.cloud
-      - name: community.vmware
-      - name: ovirt.ovirt
-      - name: kubernetes.core
-      - name: ansible.posix
+      # Core Collections
+      - name: ansible.netcommon
+      - name: ansible.utils
       - name: ansible.windows
-      - name: redhatinsights.insights
-      - name: kubevirt.core
-  system: |
-    git-core [platform:rpm]
-    python3.11-devel [platform:rpm compile]
-    libcurl-devel [platform:rpm compile]
-    krb5-devel [platform:rpm compile]
-    krb5-workstation [platform:rpm]
-    subversion [platform:rpm]
-    subversion [platform:dpkg]
-    git-lfs [platform:rpm]
-    sshpass [platform:rpm]
-    rsync [platform:rpm]
-    epel-release [platform:rpm]
-    unzip [platform:rpm]
-    podman-remote [platform:rpm]
-    cmake [platform:rpm compile]
-    gcc [platform:rpm compile]
-    gcc-c++ [platform:rpm compile]
-    make [platform:rpm compile]
-    openssl-devel [platform:rpm compile]
+      - name: ansible.posix
+      
+      # Event Driven Automation
+      - name: ansible.eda
+      
+      # Microsoft Environment
+      - name: microsoft.ad
+      - name: community.windows
+      
+      # Azure Cloud
+      - name: azure.azcollection
+      
+      # Monitoring & Observability
+      - name: community.zabbix
+      - name: grafana.grafana
+      
+      # Security
+      - name: community.crypto
+      
+      # Network Management
+      - name: cisco.ios
+      - name: fortinet.fortios
+      - name: community.network
+      
+      # Infrastructure & Virtualization
+      - name: maxhoesel.proxmox
+      
+      # Applications & Development
+      - name: community.general
+      - name: community.docker
+      - name: community.dns
+      
+      # SAP Solutions
+      - name: community.sap_install
+      
+    requirements: |
+      # Node.js Management
+      - src: geerlingguy.nodejs
+        name: geerlingguy.nodejs
+      
+      # HPE Comware Switches
+      - src: https://github.com/HPENetworking/hpe-cw7-ansible.git
+        name: hpe_cw7
+        version: main
+
   python: |
-    git+https://github.com/ansible/ansible-sign
-    ncclient
-    paramiko
-    pykerberos
-    pyOpenSSL
-    pypsrp[kerberos,credssp]
-    pywinrm[kerberos,credssp]
-    toml
-    pexpect>=4.5
-    python-daemon
-    pyyaml
-    six
-    receptorctl
+    # Core Dependencies
+    dnspython>=2.2.0
+    urllib3>=1.26.0
+    
+    # Windows/AD Authentication
+    pykerberos>=1.2.1
+    pywinrm>=0.4.3
+    pypsrp[kerberos]>=0.8.0
+    
+    # Azure Dependencies
+    azure-cli-core>=2.40.0
+    azure-common>=1.1.28
+    azure-mgmt-compute>=23.1.0
+    azure-mgmt-network>=19.0.0
+    azure-mgmt-resource>=20.0.0
+    azure-mgmt-storage>=19.0.0
+    azure-identity>=1.12.0
+    azure-mgmt-authorization>=2.0.0
+    
+    # VMware/Proxmox Dependencies
+    pyVim>=0.0.26
+    PyVmomi>=7.0.3
+    proxmoxer>=1.3.0
+    requests>=2.28.0
+    
+    # SAP Dependencies
+    xmltodict>=0.13.0
+    
+    # HPE Comware Dependencies
+    ncclient>=0.6.13
+    lxml>=4.6.0
+    
+    # Monitoring Dependencies
+    zabbix-api>=0.5.4
+    grafana-api>=1.0.3
+    
+    # Security Dependencies
+    cryptography>=3.4.8
+    
+    # General Dependencies
+    jmespath>=0.10.0
+    netaddr>=0.8.0
+    awxkit==21.6.0
+
 additional_build_steps:
+  prepend_base:
+    # Update system and install base packages
+    - RUN dnf update -y
+    - RUN dnf install -y epel-release
+    - RUN dnf install -y python3 python3-pip python3-devel
+    
+    # Kerberos support for AD authentication
+    - RUN dnf install -y krb5-devel krb5-libs krb5-workstation
+    
+    # Development tools for Python packages compilation
+    - RUN dnf install -y gcc gcc-c++ make
+    
+    # Network tools
+    - RUN dnf install -y openssh-clients sshpass
+    
+    # XML processing for SAP
+    - RUN dnf install -y libxml2-devel libxslt-devel
+    
   append_base:
-    - RUN $PYCMD -m pip install -U pip
-  append_final:
-    - COPY --from=quay.io/ansible/receptor:devel /usr/bin/receptor /usr/bin/receptor
+    # Upgrade pip and install Python packages
+    - RUN python3 -m pip install --upgrade pip setuptools wheel
+    
+    # Install Azure CLI
+    - RUN python3 -m pip install azure-cli
+    
+    # Copy receptor for Event Driven Ansible
+    - COPY --from=quay.io/project-receptor/receptor:latest /usr/bin/receptor /usr/bin/receptor
     - RUN mkdir -p /var/run/receptor
-    - RUN git lfs install --system
-    # SymLink `python` -> `python3.11`
-    - RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311
+    
+    # Create directories for custom configurations
+    - RUN mkdir -p /opt/ansible/collections
+    - RUN mkdir -p /opt/ansible/playbooks
+    - RUN mkdir -p /opt/ansible/inventories
+    
+    # Set proper permissions
+    - RUN chmod +x /usr/bin/receptor
+    
+    # Clean up package cache
+    - RUN dnf clean all
+
+build_arg_defaults:
+  ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v"
+
 EOF
 }
 

@@ -1368,12 +1368,6 @@ CUSTOM_REGISTRY=""
 WORKER_NODES=""
 K8S_VERSION=""
 
-# Detectar se estamos em um terminal interativo
-if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
-    INTERACTIVE=false
-    SILENT=true
-fi
-
 # Inicializar recursos
 initialize_resources
 

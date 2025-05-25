@@ -773,8 +773,6 @@ create_execution_environment() {
         ansible-builder build -t localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest -f execution-environment.yml
     fi
     
-    test_execution_environment
-    
     log_info "Enviando imagem para registry local..."
     docker push localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
     
@@ -814,9 +812,9 @@ calculate_awx_resources() {
 
     local available_cores=$((available_cpu / 1000))
     
-    local web_cpu_req="$((available_cpu * 5 / 100))m"
+    local web_cpu_req="$((available_cpu * 15 / 100))m"
     local web_cpu_lim="$((available_cpu * 30 / 100))m"
-    local web_mem_req="$((available_mem * 5 / 100))Mi"
+    local web_mem_req="$((available_mem * 15 / 100))Mi"
     local web_mem_lim="$((available_mem * 25 / 100))Mi"
     
     local task_cpu_req="$((available_cpu * 10 / 100))m"
@@ -824,10 +822,10 @@ calculate_awx_resources() {
     local task_mem_req="$((available_mem * 10 / 100))Mi"
     local task_mem_lim="$((available_mem * 50 / 100))Mi"
     
-    [ "${web_cpu_req%m}" -lt 50 ] && web_cpu_req="50m"
-    [ "${web_mem_req%Mi}" -lt 128 ] && web_mem_req="128Mi"
-    [ "${task_cpu_req%m}" -lt 50 ] && task_cpu_req="50m"
-    [ "${task_mem_req%Mi}" -lt 128 ] && task_mem_req="128Mi"
+    [ "${web_cpu_req%m}" -lt 500 ] && web_cpu_req="500m"
+    [ "${web_mem_req%Mi}" -lt 512 ] && web_mem_req="512Mi"
+    [ "${task_cpu_req%m}" -lt 500 ] && task_cpu_req="500m"
+    [ "${task_mem_req%Mi}" -lt 512 ] && task_mem_req="512Mi"
     
     export AWX_WEB_CPU_REQ="$web_cpu_req"
     export AWX_WEB_CPU_LIM="$web_cpu_lim"

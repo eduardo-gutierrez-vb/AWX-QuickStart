@@ -810,7 +810,7 @@ show_final_info() {
 # ============================
 
 # Valores padrão
-DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
+DEFAULT_CLUSTER_NAME="awx-cluster-$PERFIL"
 DEFAULT_HOST_PORT=8080
 INSTALL_DEPS_ONLY=false
 VERBOSE=false

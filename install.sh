@@ -1,11 +1,18 @@
 #!/bin/bash
 set -e
 
+# ============================
+# CORES E FUNÇÕES DE LOG
+# ============================
+
 # Cores para output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
 # Função para log colorido
@@ -25,6 +32,89 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+log_debug() {
+    echo -e "${PURPLE}[DEBUG]${NC} $1"
+}
+
+log_header() {
+    echo -e "${CYAN}================================${NC}"
+    echo -e "${WHITE}$1${NC}"
+    echo -e "${CYAN}================================${NC}"
+}
+
+log_subheader() {
+    echo -e "${CYAN}--- $1 ---${NC}"
+}
+
+# ============================
+# CONFIGURAÇÃO E CONSTANTES
+# ============================
+
+# Fatores de segurança para cálculo de recursos
+SAFETY_FACTOR_PROD=70
+SAFETY_FACTOR_DEV=80
+
+# Portas padrão
+DEFAULT_HOST_PORT=8080
+REGISTRY_PORT=5001
+
+# ============================
+# COMANDOS DE DIAGNÓSTICO MELHORADOS
+# ============================
+
+# Função completa de diagnóstico de pods AWX
+diagnose_awx_pods() {
+    echo "=== STATUS DOS PODS AWX ==="
+    kubectl get pods -n $AWX_NAMESPACE -o wide
+    
+    echo -e "\n=== EVENTOS DOS PODS ==="
+    kubectl get events -n $AWX_NAMESPACE --sort-by=.metadata.creationTimestamp
+    
+    echo -e "\n=== LOGS DOS PODS COM PROBLEMA ==="
+    for pod in $(kubectl get pods -n $AWX_NAMESPACE --field-selector=status.phase=Failed -o name 2>/dev/null); do
+        echo "Logs do $pod:"
+        kubectl logs -n $AWX_NAMESPACE $pod --previous --tail=50 2>/dev/null || true
+    done
+}
+
+# Verificação de recursos do cluster
+check_cluster_resources() {
+    echo "=== RECURSOS DO CLUSTER ==="
+    kubectl top nodes 2>/dev/null || echo "Metrics server não disponível"
+    kubectl top pods -n $AWX_NAMESPACE 2>/dev/null || echo "Metrics server não disponível"
+    
+    echo -e "\n=== CAPACIDADE DO CLUSTER ==="
+    kubectl describe nodes | grep -A 5 "Allocated resources"
+}
+
+# Verificação do registry local
+check_registry() {
+    echo "=== STATUS DO REGISTRY LOCAL ==="
+    docker ps | grep kind-registry
+    curl -s http://localhost:${REGISTRY_PORT}/v2/_catalog 2>/dev/null || echo "Registry não disponível"
+}
+
+# Limpeza e restart completo
+reset_awx_deployment() {
+    log_warning "Resetando deployment AWX..."
+    kubectl delete awx awx-${PERFIL} -n $AWX_NAMESPACE --ignore-not-found=true
+    kubectl delete pods --all -n $AWX_NAMESPACE
+    sleep 30
+    kubectl apply -f /tmp/awx-instance.yaml -n $AWX_NAMESPACE
+}
+
+# Verificação de conectividade com registry
+test_registry_connectivity() {
+    kubectl run test-registry --image=localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
+        --restart=Never -n $AWX_NAMESPACE --command -- sleep 3600 2>/dev/null || true
+    kubectl wait --for=condition=Ready pod/test-registry -n $AWX_NAMESPACE --timeout=60s 2>/dev/null || true
+    kubectl delete pod test-registry -n $AWX_NAMESPACE 2>/dev/null || true
+}
+
+# ============================
+# VALIDAÇÃO E UTILITÁRIOS
+# ============================
+
 # Função para verificar se comando existe
 command_exists() {
     command -v "$1" >/dev/null 2>&1
@@ -35,7 +125,430 @@ user_in_docker_group() {
     groups | grep -q docker
 }
 
-# Função para instalar Docker
+# Função para validar número
+is_number() {
+    [[ $1 =~ ^[0-9]+$ ]]
+}
+
+# Função para validar porta
+validate_port() {
+    if ! is_number "$1" || [ "$1" -lt 1 ] || [ "$1" -gt 65535 ]; then
+        log_error "Porta inválida: $1. Use um valor entre 1 e 65535."
+        return 1
+    fi
+    return 0
+}
+
+# Função para validar CPU
+validate_cpu() {
+    if ! is_number "$1" || [ "$1" -lt 1 ] || [ "$1" -gt 64 ]; then
+        log_error "CPU inválida: $1. Use um valor entre 1 e 64."
+        return 1
+    fi
+    return 0
+}
+
+# Função para validar memória
+validate_memory() {
+    if ! is_number "$1" || [ "$1" -lt 512 ] || [ "$1" -gt 131072 ]; then
+        log_error "Memória inválida: $1. Use um valor entre 512 MB e 131072 MB (128 GB)."
+        return 1
+    fi
+    return 0
+}
+
+# Adicione estas funções no início do script
+validate_environment() {
+    log_header "VERIFICAÇÃO DE AMBIENTE"
+    
+    # 1. Verificar porta obrigatoriamente
+    check_port_availability "$HOST_PORT"
+    
+    # 2. Verificar e remover clusters conflitantes
+    if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
+        log_warning "Removendo cluster existente '${CLUSTER_NAME}'..."
+        kind delete cluster --name "$CLUSTER_NAME"
+        sleep 15  # Tempo para limpeza completa
+    fi
+    
+    # 3. Limpar containers órfãos
+    docker rm -f $(docker ps -aq --filter "label=io.x-k8s.kind.cluster=${CLUSTER_NAME}") 2>/dev/null || true
+    
+    # 4. Verificar redes residuais
+    if docker network inspect kind >/dev/null 2>&1; then
+        log_info "Removendo rede kind residual..."
+        docker network rm kind 2>/dev/null || true
+    fi
+}
+
+check_port_availability() {
+    local port=$1
+    log_subheader "VERIFICANDO PORTA $port"
+    
+    # Verificar processos locais
+    local pid=$(lsof -t -i :$port 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+        log_error "Conflito de porta detectado:"
+        lsof -i :$port
+        log_info "Execute para liberar: kill -9 $pid"
+        exit 1
+    fi
+    
+    # Verificar containers Docker
+    local container=$(docker ps --format '{{.Names}}' | grep ".*${port}->${port}/tcp" || true)
+    if [ -n "$container" ]; then
+        log_error "Container Docker usando a porta:"
+        docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep "$port"
+        log_info "Execute para liberar: docker rm -f $container"
+        exit 1
+    fi
+}
+
+# ============================
+# DETECÇÃO DE RECURSOS
+# ============================
+
+# Detecta recursos do sistema com cálculos precisos
+detect_cores() {
+    if [ -n "$FORCE_CPU" ]; then 
+        echo "$FORCE_CPU"
+        return
+    fi
+    nproc --all
+}
+
+detect_mem_mb() {
+    if [ -n "$FORCE_MEM_MB" ]; then 
+        echo "$FORCE_MEM_MB"
+        return
+    fi
+    awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo
+}
+
+# Função para determinar perfil baseado nos recursos
+determine_profile() {
+    local cores=$1
+    local mem_mb=$2
+    
+    if [ "$cores" -ge 4 ] && [ "$mem_mb" -ge 8192 ]; then
+        echo "prod"
+    else
+        echo "dev"
+    fi
+}
+
+calculate_cpu_reserved() {
+    local total_cores=$1
+    local reserved_millicores=0
+
+    # Fórmula baseada nas reservas padrão do GKE/EKS/AKS
+    if [ "$total_cores" -ge 1 ]; then
+        # Primeiro core: 6% (60 millicores)
+        reserved_millicores=$((reserved_millicores + 60))
+        remaining_cores=$((total_cores - 1))
+    fi
+
+    if [ "$remaining_cores" -ge 1 ]; then
+        # Segundo core: 1% (10 millicores)
+        reserved_millicores=$((reserved_millicores + 10))
+        remaining_cores=$((remaining_cores - 1))
+    fi
+
+    if [ "$remaining_cores" -ge 2 ]; then
+        # Próximos 2 cores: 0.5% cada (5 millicores por core)
+        reserved_millicores=$((reserved_millicores + 10))
+        remaining_cores=$((remaining_cores - 2))
+    fi
+
+    if [ "$remaining_cores" -gt 0 ]; then
+        # Cores restantes: 0.25% cada (2.5 millicores por core)
+        reserved_millicores=$((reserved_millicores + (remaining_cores * 25 / 10)))
+    fi
+
+    echo $reserved_millicores
+}
+
+calculate_memory_reserved() {
+    local total_mem_mb=$1
+    local reserved_mb=0
+
+    # Fórmula baseada no modelo escalonado da GKE
+    if [ "$total_mem_mb" -lt 1024 ]; then
+        reserved_mb=255
+    else
+        # 25% dos primeiros 4 GiB
+        first_4gb=$((total_mem_mb > 4096 ? 4096 : total_mem_mb))
+        reserved_mb=$((first_4gb * 25 / 100))
+        remaining_mb=$((total_mem_mb - first_4gb))
+
+        # 20% dos próximos 4 GiB (até 8 GiB)
+        if [ "$remaining_mb" -gt 0 ]; then
+            next_4gb=$((remaining_mb > 4096 ? 4096 : remaining_mb))
+            reserved_mb=$((reserved_mb + next_4gb * 20 / 100))
+            remaining_mb=$((remaining_mb - next_4gb))
+        fi
+
+        # 10% dos próximos 8 GiB (até 16 GiB)
+        if [ "$remaining_mb" -gt 0 ]; then
+            next_8gb=$((remaining_mb > 8192 ? 8192 : remaining_mb))
+            reserved_mb=$((reserved_mb + next_8gb * 10 / 100))
+            remaining_mb=$((remaining_mb - next_8gb))
+        fi
+
+        # 6% dos próximos 112 GiB (até 128 GiB)
+        if [ "$remaining_mb" -gt 0 ]; then
+            next_112gb=$((remaining_mb > 114688 ? 114688 : remaining_mb))
+            reserved_mb=$((reserved_mb + next_112gb * 6 / 100))
+            remaining_mb=$((remaining_mb - next_112gb))
+        fi
+
+        # 2% de qualquer memória acima de 128 GiB
+        if [ "$remaining_mb" -gt 0 ]; then
+            reserved_mb=$((reserved_mb + remaining_mb * 2 / 100))
+        fi
+    fi
+
+    # Adicionar reserva para eviction threshold
+    reserved_mb=$((reserved_mb + 100))
+
+    echo $reserved_mb
+}
+
+# Calcula réplicas baseado no perfil e recursos
+calculate_replicas() {
+    local profile=$1
+    local available_cpu_millicores=$2
+    local workload_type=$3  # web, task, etc
+
+    if [ "$profile" = "prod" ]; then
+        # Cálculo baseado em densidade de carga com margem de segurança
+        local base_replicas=$((available_cpu_millicores / 1000))
+        
+        # Ajustes por tipo de workload
+        case "$workload_type" in
+            "web")
+                replicas=$((base_replicas * 2 / 3))  # Prioriza CPUs para tarefas
+                ;;
+            "task")
+                replicas=$((base_replicas / 2))
+                ;;
+            *)
+                replicas=$base_replicas
+                ;;
+        esac
+        
+        # Limites operacionais
+        [ "$replicas" -lt 2 ] && replicas=2  # Mínimo 2 em produção
+        [ "$replicas" -gt 10 ] && replicas=10 # Máximo 10 por serviço
+    else
+        # Desenvolvimento: 1 réplica com possibilidade de override
+        replicas=1
+        [ "$available_cpu_millicores" -ge 2000 ] && replicas=2 # Caso máquinas grandes
+    fi
+
+    echo $replicas
+}
+
+# ============================
+# CÁLCULO DE RECURSOS CORRIGIDO
+# ============================
+
+calculate_resources_with_feedback() {
+    local total_cores=$1
+    local total_mem_mb=$2
+    local profile=$3
+    
+    log_subheader "ANÁLISE DETALHADA DE RECURSOS"
+    
+    # Mostrar recursos detectados
+    log_info "Recursos do Sistema Detectados:"
+    log_info "   CPUs Totais: ${GREEN}${total_cores}${NC} cores"
+    log_info "   Memória Total: ${GREEN}${total_mem_mb}MB${NC} ($(echo "scale=1; $total_mem_mb/1024" | bc -l)GB)"
+    
+    # Calcular reservas do sistema
+    local cpu_reserved_millicores=$(calculate_cpu_reserved "$total_cores")
+    local mem_reserved_mb=$(calculate_memory_reserved "$total_mem_mb")
+    
+    log_info "Reservas do Sistema (baseado em padrões GKE/EKS):"
+    log_info "   CPU Reservada: ${YELLOW}${cpu_reserved_millicores}m${NC} ($(echo "scale=2; $cpu_reserved_millicores/1000" | bc -l) cores)"
+    log_info "   Memória Reservada: ${YELLOW}${mem_reserved_mb}MB${NC} ($(echo "scale=1; $mem_reserved_mb/1024" | bc -l)GB)"
+    
+    # Aplicar fator de segurança
+    local safety_factor=$SAFETY_FACTOR_PROD
+    [ "$profile" = "dev" ] && safety_factor=$SAFETY_FACTOR_DEV
+    
+    log_info "Fator de Segurança Aplicado: ${CYAN}${safety_factor}%${NC} (perfil: $profile)"
+    
+    # Calcular recursos finais
+    local available_cpu=$((total_cores * 1000 - cpu_reserved_millicores))
+    local available_mem=$((total_mem_mb - mem_reserved_mb))
+    
+    available_cpu=$((available_cpu * safety_factor / 100))
+    available_mem=$((available_mem * safety_factor / 100))
+    
+    # Garantir valores mínimos operacionais
+    [ "$available_cpu" -lt 500 ] && available_cpu=500  # 0.5 core mínimo
+    [ "$available_mem" -lt 512 ] && available_mem=512   # 512MB mínimo
+    
+    log_success "Recursos Disponíveis para AWX:"
+    log_success "   > CPU Disponível: ${GREEN}${available_cpu}m${NC} ($(echo "scale=1; $available_cpu/1000" | bc -l) cores)"
+    log_success "   > Memória Disponível: ${GREEN}${available_mem}MB${NC} ($(echo "scale=1; $available_mem/1024" | bc -l)GB)"
+    
+    # Calcular réplicas
+    local web_replicas=$(calculate_replicas "$profile" "$available_cpu" "web")
+    local task_replicas=$(calculate_replicas "$profile" "$available_cpu" "task")
+    
+    log_success "Configuração Final de Réplicas:"
+    log_success "   Web Réplicas: ${GREEN}$web_replicas${NC}"
+    log_success "   Task Réplicas: ${GREEN}$task_replicas${NC}"
+    
+    # Exportar variáveis calculadas - CORREÇÃO CRÍTICA
+    export AVAILABLE_CPU_MILLICORES=$available_cpu
+    export AVAILABLE_MEMORY_MB=$available_mem
+    export WEB_REPLICAS=$web_replicas
+    export TASK_REPLICAS=$task_replicas
+    export CORES=$total_cores
+    export MEM_MB=$total_mem_mb
+    export PERFIL=$profile
+}
+
+# ============================
+# INICIALIZAÇÃO DE RECURSOS CORRIGIDA
+# ============================
+
+initialize_resources() {
+    # Detectar recursos (considerando valores forçados se existirem)
+    CORES=$(detect_cores)
+    MEM_MB=$(detect_mem_mb)
+    
+    # Determinar perfil baseado nos recursos
+    PERFIL=$(determine_profile "$CORES" "$MEM_MB")
+    
+    # Calcular recursos disponíveis COM feedback
+    calculate_resources_with_feedback "$CORES" "$MEM_MB" "$PERFIL"
+    
+    log_debug "Recursos inicializados: PERFIL=$PERFIL, CORES=$CORES, MEM_MB=${MEM_MB}MB"
+    log_debug "Variáveis exportadas: WEB_REPLICAS=$WEB_REPLICAS, TASK_REPLICAS=$TASK_REPLICAS"
+}
+
+# ============================
+# FUNÇÃO DE AJUDA
+# ============================
+
+show_help() {
+    cat << EOF
+${CYAN}=== Script de Implantação AWX com Kind ===${NC}
+
+${WHITE}USO:${NC}
+    $0 [OPÇÕES]... ${WHITE}OPÇÕES:${NC}
+    ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: será calculado baseado no perfil)
+    ${GREEN}-p PORTA${NC}     Porta do host para acessar AWX (padrão: 8080)
+    ${GREEN}-f CPU${NC}       Forçar número de CPUs (ex: 4)
+    ${GREEN}-m MEMORIA${NC}   Forçar quantidade de memória em MB (ex: 8192)
+    ${GREEN}-d${NC}           Instalar apenas dependências
+    ${GREEN}-v${NC}           Modo verboso (debug)
+    ${GREEN}-h${NC}           Exibir esta ajuda
+
+${WHITE}EXEMPLOS:${NC}
+    $0                                    # Usar valores padrão
+    $0 -c meu-cluster -p 8080            # Cluster personalizado na porta 8080
+    $0 -f 4 -m 8192                     # Forçar 4 CPUs e 8GB RAM
+    $0 -d                                # Instalar apenas dependências
+    $0 -v -c test-cluster                # Modo verboso com cluster personalizado
+
+${WHITE}DEPENDÊNCIAS INSTALADAS AUTOMATICAMENTE:${NC}
+    - Docker
+    - Kind
+    - kubectl
+    - Helm
+    - Ansible
+    - ansible-builder
+    - Python 3.9 + venv
+
+${WHITE}RECURSOS:${NC}
+    O script detecta automaticamente os recursos do sistema e calcula
+    a configuração ideal para o AWX baseado no perfil detectado:
+    
+    ${GREEN}Produção${NC}: ≥4 CPUs e ≥8GB RAM - Múltiplas réplicas
+    ${YELLOW}Desenvolvimento${NC}: <4 CPUs ou <8GB RAM - Réplica única
+
+${WHITE}ACESSO AWX:${NC}
+    Após a instalação, acesse: http://localhost:PORTA
+    Usuário: admin
+    Senha: (exibida no final da instalação)
+EOF
+}
+
+# ============================
+# INSTALAÇÃO DE DEPENDÊNCIAS
+# ============================
+
+install_dependencies() {
+    log_header "VERIFICAÇÃO E INSTALAÇÃO DE DEPENDÊNCIAS"
+    
+    # Verificar se estamos no Ubuntu
+    if [[ ! -f /etc/os-release ]] || ! grep -q "Ubuntu" /etc/os-release; then
+        log_warning "Este script foi testado apenas no Ubuntu. Prosseguindo mesmo assim..."
+    fi
+    
+    # Atualizar sistema
+    log_info "Atualizando sistema..."
+    sudo apt-get update -qq
+    sudo apt-get upgrade -y
+    
+    # Instalar dependências básicas
+    log_info "Instalando dependências básicas..."
+    sudo apt-get install -y \
+        python3 python3-pip python3-venv git curl wget \
+        ca-certificates gnupg2 lsb-release build-essential \
+        software-properties-common apt-transport-https bc jq lsof
+    
+    # Instalar Python 3.9
+    install_python39
+    
+    # Instalar Docker
+    install_docker
+    
+    # Instalar Kind
+    install_kind
+    
+    # Instalar kubectl
+    install_kubectl
+    
+    # Instalar Helm
+    install_helm
+    
+    # Instalar Ansible e ansible-builder
+    install_ansible_tools
+    
+    # Verificar se Docker está funcionando
+    check_docker_running
+    
+    # Iniciar registry local
+    start_local_registry
+    
+    log_success "Todas as dependências foram instaladas e verificadas!"
+}
+
+install_python39() {
+    if command_exists python3.9; then
+        log_info "Python 3.9 já está instalado: $(python3.9 --version)"
+        return 0
+    fi
+    
+    log_info "Instalando Python 3.9..."
+    sudo add-apt-repository ppa:deadsnakes/ppa -y
+    sudo apt-get update -qq
+    sudo apt-get install -y python3.9 python3.9-venv python3.9-distutils python3.9-dev
+    
+    # Instalar pip para Python 3.9
+    curl https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+    sudo python3.9 /tmp/get-pip.py
+    rm /tmp/get-pip.py
+    
+    log_success "Python 3.9 instalado com sucesso: $(python3.9 --version)"
+}
+
 install_docker() {
     if command_exists docker; then
         log_info "Docker já está instalado: $(docker --version)"
@@ -50,8 +563,8 @@ install_docker() {
 
     log_info "Instalando Docker..."
     
-    # Atualizar cache de pacotes
-    sudo apt-get update -q
+    # Remover versões antigas
+    sudo apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
     
     # Instalar dependências
     sudo apt-get install -y ca-certificates curl
@@ -70,7 +583,7 @@ install_docker() {
       sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
     
     # Atualizar cache e instalar Docker
-    sudo apt-get update -q
+    sudo apt-get update -qq
     sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     
     # Adicionar usuário ao grupo docker
@@ -82,10 +595,8 @@ install_docker() {
     
     log_success "Docker instalado com sucesso!"
     log_warning "ATENÇÃO: Você precisa fazer logout e login novamente para as mudanças de grupo terem efeito."
-    log_warning "Ou execute: newgrp docker"
 }
 
-# Função para instalar Kind
 install_kind() {
     if command_exists kind; then
         log_info "Kind já está instalado: $(kind version)"
@@ -95,14 +606,13 @@ install_kind() {
     log_info "Instalando Kind..."
     
     # Download do Kind
-    curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
+    curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
     chmod +x ./kind
     sudo mv ./kind /usr/local/bin/kind
     
     log_success "Kind instalado com sucesso: $(kind version)"
 }
 
-# Função para instalar kubectl
 install_kubectl() {
     if command_exists kubectl; then
         log_info "kubectl já está instalado: $(kubectl version --client --short 2>/dev/null || kubectl version --client)"
@@ -119,7 +629,6 @@ install_kubectl() {
     log_success "kubectl instalado com sucesso: $(kubectl version --client --short 2>/dev/null || kubectl version --client)"
 }
 
-# Função para instalar Helm
 install_helm() {
     if command_exists helm; then
         log_info "Helm já está instalado: $(helm version --short)"
@@ -131,20 +640,37 @@ install_helm() {
     # Adicionar chave GPG do Helm
     curl -fsSL https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
     
-    # Instalar apt-transport-https se necessário
-    sudo apt-get install -y apt-transport-https
-    
     # Adicionar repositório do Helm
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
     
     # Atualizar e instalar Helm
-    sudo apt-get update -q
+    sudo apt-get update -qq
     sudo apt-get install -y helm
     
     log_success "Helm instalado com sucesso: $(helm version --short)"
 }
 
-# Função para verificar se Docker está funcionando
+install_ansible_tools() {
+    # Verificar se já existe ambiente virtual
+    if [ -d "$HOME/ansible-ee-venv" ]; then
+        log_info "Ambiente virtual Ansible já existe"
+        source "$HOME/ansible-ee-venv/bin/activate"
+    else
+        log_info "Criando ambiente virtual Python para Ansible..."
+        python3.9 -m venv "$HOME/ansible-ee-venv"
+        source "$HOME/ansible-ee-venv/bin/activate"
+    fi
+    
+    if command_exists ansible; then
+        log_info "Ansible já está instalado: $(ansible --version | head -n1)"
+    else
+        log_info "Instalando Ansible e ansible-builder..."
+        pip install --upgrade pip
+        pip install "ansible>=7.0.0" "ansible-builder>=3.0.0"
+        log_success "Ansible e ansible-builder instalados com sucesso!"
+    fi
+}
+
 check_docker_running() {
     if ! docker info >/dev/null 2>&1; then
         log_error "Docker não está funcionando. Verificando..."
@@ -170,107 +696,40 @@ check_docker_running() {
     log_success "Docker está funcionando corretamente!"
 }
 
-# Função principal de instalação de dependências
-install_dependencies() {
-    log_info "Verificando e instalando dependências..."
-    
-    # Verificar se estamos no Ubuntu
-    if [[ ! -f /etc/os-release ]] || ! grep -q "Ubuntu" /etc/os-release; then
-        log_warning "Este script foi testado apenas no Ubuntu. Prosseguindo mesmo assim..."
+start_local_registry() {
+    if docker ps | grep -q kind-registry; then
+        log_info "Registry local já está rodando"
+        return 0
     fi
     
-    # Instalar dependências
-    install_docker
-    install_kind
-    install_kubectl
-    install_helm
+    log_info "Iniciando registry local para Kind..."
+    docker run -d --restart=always -p ${REGISTRY_PORT}:5000 --name kind-registry registry:2
     
-    # Verificar se Docker está funcionando
-    check_docker_running
+    # Conectar ao network do kind se existir
+    if docker network ls | grep -q kind; then
+        docker network connect kind kind-registry 2>/dev/null || true
+    fi
     
-    log_success "Todas as dependências foram instaladas e verificadas!"
+    log_success "Registry local iniciado em localhost:${REGISTRY_PORT}"
 }
 
-# Função para exibir ajuda
-show_help() {
-    cat << EOF
-Uso: $0 [OPÇÕES]
+# ============================
+# CRIAÇÃO E CONFIGURAÇÃO DO CLUSTER
+# ============================
 
-OPÇÕES:
-    -c NOME     Nome do cluster Kind (padrão: awx-cluster-prd)
-    -p PORTA    Porta do host para acessar AWX (padrão: 8080)
-    -d          Instalar apenas dependências
-    -h          Exibir esta ajuda
-
-EXEMPLOS:
-    $0                          # Usar valores padrão
-    $0 -c meu-cluster -p 9090   # Cluster personalizado na porta 9090
-    $0 -d                       # Instalar apenas dependências
-
-DEPENDÊNCIAS:
-    - Docker
-    - Kind
-    - kubectl
-    - Helm
-
-Este script irá verificar e instalar automaticamente todas as dependências necessárias.
-EOF
-}
-
-# Default values
-DEFAULT_CLUSTER_NAME="awx-cluster-prd"
-DEFAULT_HOST_PORT=8080
-INSTALL_DEPS_ONLY=false
-
-# Parse command-line options
-while getopts "c:p:dh" opt; do
-  case ${opt} in
-    c)
-      CLUSTER_NAME="$OPTARG"
-      ;;
-    p)
-      HOST_PORT="$OPTARG"
-      ;;
-    d)
-      INSTALL_DEPS_ONLY=true
-      ;;
-    h)
-      show_help
-      exit 0
-      ;;
-    *)
-      show_help
-      exit 1
-      ;;
-  esac
-done
-shift $((OPTIND - 1))
-
-# Set variables to default values if not provided
-CLUSTER_NAME=${CLUSTER_NAME:-$DEFAULT_CLUSTER_NAME}
-HOST_PORT=${HOST_PORT:-$DEFAULT_HOST_PORT}
-
-# Validar porta
-if ! [[ "$HOST_PORT" =~ ^[0-9]+$ ]] || [ "$HOST_PORT" -lt 1 ] || [ "$HOST_PORT" -gt 65535 ]; then
-    log_error "Porta inválida: $HOST_PORT. Use um valor entre 1 e 65535."
-    exit 1
-fi
-
-log_info "=== Script de Implantação AWX com Kind ==="
-log_info "Cluster: $CLUSTER_NAME"
-log_info "Porta do Host: $HOST_PORT"
-
-# Instalar dependências
-install_dependencies
-
-# Se apenas instalação de dependências foi solicitada, sair
-if [ "$INSTALL_DEPS_ONLY" = true ]; then
-    log_success "Dependências instaladas com sucesso!"
-    exit 0
-fi
-
-# Inline Kind cluster configuration with variable expansion
-KIND_CONFIG=$(cat <<EOF
+create_kind_cluster() {
+    log_header "CRIAÇÃO DO CLUSTER KIND"
+    # Verificar cluster existente
+    if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
+        log_warning "Cluster '$CLUSTER_NAME' já existe. Deletando..."
+        kind delete cluster --name "$CLUSTER_NAME"
+        validate_environment
+    fi
+    
+    log_info "Criando cluster Kind '$CLUSTER_NAME'..."
+    
+    # Configuração do cluster Kind
+    cat > /tmp/kind-config.yaml << EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -285,89 +744,692 @@ nodes:
     apiServer:
         extraArgs:
           enable-aggregator-routing: "true"
+  - |
+    kind: KubeletConfiguration
+    maxPods: 110
 EOF
-)
 
-# Inline AWX manifest configuration (AWX instance uses nodeport 30000)
-AWX_MANIFEST=$(cat <<'EOF'
+    # Adicionar workers se for produção
+    if [ "$PERFIL" = "prod" ] && [ "$CORES" -ge 6 ]; then
+        log_info "Adicionando nó worker para ambiente de produção..."
+        cat >> /tmp/kind-config.yaml << EOF
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    maxPods: 110
+EOF
+    fi
+    
+    # Criar cluster
+    kind create cluster --name "$CLUSTER_NAME" --config /tmp/kind-config.yaml
+    rm /tmp/kind-config.yaml
+    
+    log_success "Cluster criado com sucesso!"
+    
+    # Aguardar cluster estar pronto
+    log_info "Aguardando cluster estar pronto..."
+    kubectl wait --for=condition=Ready nodes --all --timeout=300s
+    
+    # Configurar registry no cluster
+    configure_registry_for_cluster
+}
+
+# Função corrigida para configurar registry no cluster - CORREÇÃO DO CONFIGMAP
+configure_registry_for_cluster() {
+    log_subheader "Configurando Registry Local"
+    
+    # Conectar registry ao network do kind
+    if ! docker network ls | grep -q kind; then
+        docker network create kind
+    fi
+    docker network connect kind kind-registry 2>/dev/null || true
+    
+    # Configurar registry no cluster - YAML CORRIGIDO
+    kubectl apply -f - << EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-registry-hosting
+  namespace: kube-public
+  labels:
+    app.kubernetes.io/name: "awx"
+    app.kubernetes.io/component: "registry-config"
+    app.kubernetes.io/managed-by: "awx-deploy-script"
+data:
+  localRegistryHosting.v1: |
+    host: "localhost:${REGISTRY_PORT}"
+    help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
+EOF
+    
+    log_success "Registry configurado no cluster"
+}
+
+# ============================
+# CRIAÇÃO DE ARQUIVOS EE OTIMIZADOS
+# ============================
+
+create_optimized_ee_files() {
+    log_info "Criando arquivos de configuração EE otimizados..."
+    
+    # Arquivo requirements.yml para coleções enterprise
+    cat > requirements.yml << 'EOF'
 ---
+collections:
+  # Windows e Active Directory
+  - name: community.windows
+    version: ">=2.2.0"
+  - name: ansible.windows
+    version: ">=2.3.0"
+  - name: microsoft.ad
+    version: ">=1.5.0"
+  
+  # SAP - usando community.sap_libs ao invés de pyrfc direto
+  - name: community.sap_libs
+    version: ">=1.4.0"
+  
+  # Geral
+  - name: community.general
+    version: ">=8.0.0"
+  - name: community.crypto
+    version: ">=2.15.0"
+  - name: kubernetes.core
+    version: ">=3.0.0"
+  
+  # Redes e infraestrutura
+  - name: cisco.ios
+    version: ">=5.0.0"
+  - name: community.network
+    version: ">=5.0.0"
+  
+  # Cloud providers
+  - name: amazon.aws
+    version: ">=7.0.0"
+  - name: azure.azcollection
+    version: ">=2.0.0"
+  - name: google.cloud
+    version: ">=1.3.0"
+EOF
+
+    # Arquivo requirements.txt para pacotes Python otimizados - CORRIGIDO
+    cat > requirements.txt << 'EOF'
+# Windows/AD - versões compatíveis
+pywinrm>=0.4.3
+requests-kerberos>=0.14.0
+requests-ntlm>=1.2.0
+pykerberos>=1.2.4; sys_platform != "win32"
+
+# SAP - usando versão estável conforme documentação
+pyrfc>=2.8.3; sys_platform == "linux"
+
+# Networking
+netaddr>=0.10.1
+jinja2>=3.1.2
+
+# Cloud
+boto3>=1.26.0
+azure-identity>=1.15.0
+google-cloud-compute>=1.15.0
+
+# Core - versões compatíveis com AWX
+ansible-core>=2.15.0,<2.16.0
+ansible-runner>=2.3.0,<2.4.0
+cryptography>=41.0.0
+requests>=2.31.0
+urllib3>=2.0.0,<3.0.0
+pyyaml>=6.0.1
+kubernetes>=28.1.0
+
+# Dependências adicionais
+psutil>=5.9.0
+paramiko>=2.12.0
+EOF
+
+    # Arquivo bindep.txt para dependências do sistema - CORRIGIDO
+    cat > bindep.txt << 'EOF'
+# Compilação básica
+gcc [platform:rpm compile]
+python3-devel [platform:rpm]
+openssl-devel [platform:rpm]
+
+# Windows/Kerberos
+krb5-devel [platform:rpm]
+libffi-devel [platform:rpm]
+
+# SAP específico - dependências do sistema necessárias para pyrfc
+libaio [platform:rpm]
+libnsl [platform:rpm]
+libuuid-devel [platform:rpm]
+
+# Rede e conectividade
+curl
+wget
+rsync
+openssh-clients [platform:rpm]
+
+# Git para collections
+git
+EOF
+
+    # Arquivo execution-environment.yml otimizado - CORRIGIDO
+    cat > execution-environment.yml << 'EOF'
+---
+version: 3
+images:
+  base_image:
+    name: quay.io/ansible/awx-ee:latest
+dependencies:
+  galaxy: requirements.yml
+  python: requirements.txt
+  system: bindep.txt
+  ansible_core:
+    package_pip: ansible-core>=2.15.0,<2.16.0
+  ansible_runner:
+    package_pip: ansible-runner>=2.3.0,<2.4.0
+additional_build_steps:
+  prepend_base:
+    - RUN dnf clean all && dnf makecache
+    - RUN dnf update -y --security
+  prepend_galaxy:
+    - RUN git config --global --add safe.directory '*'
+    - RUN mkdir -p /tmp/ansible-collections
+  prepend_final:
+    - RUN python -m pip install --upgrade pip setuptools wheel
+    - RUN python -m pip check || true
+  append_final:
+    - RUN ansible-galaxy collection list | head -20
+    - RUN pip list | grep -E "(ansible|requests|kubernetes)" || true
+    - RUN python -c "import ansible; print(f'Ansible {ansible.__version__} OK')" || echo "Ansible check failed"
+    - RUN python -c "import ansible_runner; print(f'Ansible Runner {ansible_runner.__version__} OK')" || echo "Runner check failed"
+    - RUN python -c "import requests; print('Requests OK')" || echo "Requests check failed"
+    - RUN python -c "import kubernetes; print('Kubernetes OK')" || echo "K8s check failed"
+    - RUN rm -rf /tmp/* /var/tmp/* /root/.cache /root/.ansible
+EOF
+}
+
+# ============================
+# FUNÇÃO DE TESTE DO EE
+# ============================
+
+test_execution_environment() {
+    log_info "Testando Execution Environment..."
+    
+    # Testar se a imagem foi criada
+    if ! docker images | grep -q "localhost:${REGISTRY_PORT}/awx-enterprise-ee"; then
+        log_warning "Imagem EE não encontrada localmente"
+        return 1
+    fi
+    
+    # Testar dependências críticas básicas
+    log_info "Testando dependências básicas..."
+    docker run --rm localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
+        python -c "
+import sys
+import subprocess
+try:
+    import requests, yaml
+    import ansible
+    print('✅ Dependências básicas OK')
+    print(f'Ansible version: {ansible.__version__}')
+    
+    # Testar collections básicas
+    result = subprocess.run(['ansible-galaxy', 'collection', 'list'], 
+                          capture_output=True, text=True)
+    if 'community.general' in result.stdout:
+        print('✅ Collections básicas OK')
+    else:
+        print('⚠️ Collections podem não estar instaladas')
+        
+except ImportError as e:
+    print(f'❌ Erro nas dependências: {e}')
+    sys.exit(1)
+except Exception as e:
+    print(f'⚠️ Erro no teste: {e}')
+" 2>/dev/null || log_warning "Erro ao testar dependências básicas"
+    
+    log_success "Teste do EE concluído"
+}
+
+# ============================
+# CRIAÇÃO DO EXECUTION ENVIRONMENT
+# ============================
+
+create_execution_environment() {
+    log_header "CRIAÇÃO DO EXECUTION ENVIRONMENT"
+    
+    # Ativar ambiente virtual
+    source "$HOME/ansible-ee-venv/bin/activate"
+    
+    log_info "Preparando Execution Environment personalizado..."
+    
+    # Criar diretório temporário
+    EE_DIR="/tmp/awx-ee-$(date +%s)"
+    mkdir -p "$EE_DIR"
+    cd "$EE_DIR"
+    
+    # Criar arquivos de configuração otimizados
+    create_optimized_ee_files
+    
+    # Construir e enviar imagem
+    log_info "Construindo Execution Environment personalizado..."
+    log_warning "Este processo pode levar vários minutos..."
+    
+    # Configurar build args baseado no ambiente
+    local build_args=""
+    if [ "$VERBOSE" = true ]; then
+        build_args="--verbosity 2"
+    else
+        build_args="--verbosity 1"
+    fi
+    
+    # Tentar build com retry em caso de falha
+    local max_retries=2
+    local retry_count=0
+    
+    while [ $retry_count -lt $max_retries ]; do
+        log_info "Tentativa de build $(($retry_count + 1))/$max_retries"
+        
+        if ansible-builder build -t localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest -f execution-environment.yml $build_args; then
+            log_success "Build do EE concluído com sucesso!"
+            break
+        else
+            retry_count=$(($retry_count + 1))
+            if [ $retry_count -lt $max_retries ]; then
+                log_warning "Build falhou, tentando novamente em 30 segundos..."
+                sleep 30
+            else
+                log_error "Build do EE falhou após $max_retries tentativas"
+                cd /
+                rm -rf "$EE_DIR"
+                exit 1
+            fi
+        fi
+    done
+    
+    # Testar a imagem antes de enviar
+    test_execution_environment
+    
+    log_info "Enviando imagem para registry local..."
+    if ! docker push localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest; then
+        log_error "Falha ao enviar imagem para registry"
+        cd /
+        rm -rf "$EE_DIR"
+        exit 1
+    fi
+    
+    # Verificar disponibilidade no registry
+    sleep 5
+    if curl -s http://localhost:${REGISTRY_PORT}/v2/_catalog 2>/dev/null | grep -q awx-enterprise-ee; then
+        log_success "Imagem disponível no registry local"
+    else
+        log_warning "Verificação do registry falhou, mas continuando..."
+    fi
+    
+    # Limpar diretório temporário
+    cd /
+    rm -rf "$EE_DIR"
+    
+    log_success "Execution Environment criado e enviado com sucesso!"
+}
+
+# ============================
+# INSTALAÇÃO DO AWX
+# ============================
+
+install_awx() {
+    log_header "INSTALAÇÃO DO AWX OPERATOR"
+    
+    log_info "Adicionando repositório Helm do AWX Operator..."
+    helm repo add awx-operator https://ansible-community.github.io/awx-operator-helm/ 2>/dev/null || true
+    helm repo update
+    
+    log_info "Criando namespace..."
+    kubectl create namespace "$AWX_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+    
+    log_info "Instalando AWX Operator usando Helm..."
+    helm upgrade --install awx-operator awx-operator/awx-operator \
+        -n "$AWX_NAMESPACE" \
+        --create-namespace \
+        --wait \
+        --timeout=10m
+    
+    log_success "AWX Operator instalado com sucesso!"
+    
+    # Criar instância AWX
+    create_awx_instance
+}
+
+# Função corrigida para calcular recursos AWX dinamicamente
+calculate_awx_resources() {
+    # Usar variáveis calculadas anteriormente
+    local available_cpu=$AVAILABLE_CPU_MILLICORES
+    local available_mem=$AVAILABLE_MEMORY_MB
+
+    # Converter milicores para cálculos
+    local available_cores=$((available_cpu / 1000))
+    
+    # Cálculos dinâmicos baseados em porcentagens dos recursos disponíveis
+    local web_cpu_req="$((available_cpu * 5 / 100))m"    # 5% do CPU disponível
+    local web_cpu_lim="$((available_cpu * 30 / 100))m"   # 30% do CPU disponível
+    local web_mem_req="$((available_mem * 5 / 100))Mi"   # 5% da memória disponível
+    local web_mem_lim="$((available_mem * 25 / 100))Mi"  # 25% da memória disponível
+    
+    local task_cpu_req="$((available_cpu * 10 / 100))m"   # 10% do CPU disponível
+    local task_cpu_lim="$((available_cpu * 60 / 100))m"   # 60% do CPU disponível
+    local task_mem_req="$((available_mem * 10 / 100))Mi"  # 10% da memória disponível
+    local task_mem_lim="$((available_mem * 50 / 100))Mi"  # 50% da memória disponível
+    
+    # Ajustar para valores mínimos operacionais
+    [ "${web_cpu_req%m}" -lt 50 ] && web_cpu_req="50m"
+    [ "${web_mem_req%Mi}" -lt 128 ] && web_mem_req="128Mi"
+    [ "${task_cpu_req%m}" -lt 50 ] && task_cpu_req="50m"
+    [ "${task_mem_req%Mi}" -lt 128 ] && task_mem_req="128Mi"
+    
+    # Exportar valores calculados
+    export AWX_WEB_CPU_REQ="$web_cpu_req"
+    export AWX_WEB_CPU_LIM="$web_cpu_lim"
+    export AWX_WEB_MEM_REQ="$web_mem_req"
+    export AWX_WEB_MEM_LIM="$web_mem_lim"
+    export AWX_TASK_CPU_REQ="$task_cpu_req"
+    export AWX_TASK_CPU_LIM="$task_cpu_lim"
+    export AWX_TASK_MEM_REQ="$task_mem_req"
+    export AWX_TASK_MEM_LIM="$task_mem_lim"
+    
+    log_debug "Recursos AWX calculados dinamicamente:"
+    log_debug "  Web CPU: $web_cpu_req - $web_cpu_lim"
+    log_debug "  Web Mem: $web_mem_req - $web_mem_lim"
+    log_debug "  Task CPU: $task_cpu_req - $task_cpu_lim"
+    log_debug "  Task Mem: $task_mem_req - $task_mem_lim"
+}
+
+create_awx_instance() {
+    log_info "Criando instância AWX..."
+    
+    # Calcular recursos AWX dinamicamente
+    calculate_awx_resources
+    
+    # Criar manifesto AWX com recursos calculados DINAMICAMENTE
+    cat > /tmp/awx-instance.yaml << EOF
 apiVersion: awx.ansible.com/v1beta1
 kind: AWX
 metadata:
-  name: awx-prd
-  namespace: awx
+  name: awx-${PERFIL}
+  namespace: ${AWX_NAMESPACE}
 spec:
   service_type: nodeport
-  nodeport_port: 30000
+  nodeport_port: ${HOST_PORT}
   admin_user: admin
   admin_email: admin@example.com
+  
+  # Execution Environment personalizado
+  control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
+  
+  # Configuração de réplicas baseada no perfil
+  replicas: ${WEB_REPLICAS}
+  web_replicas: ${WEB_REPLICAS}
+  task_replicas: ${TASK_REPLICAS}
+  
+  # Recursos para web containers - VALORES CALCULADOS DINAMICAMENTE
+  web_resource_requirements:
+    requests:
+      cpu: ${AWX_WEB_CPU_REQ}
+      memory: ${AWX_WEB_MEM_REQ}
+    limits:
+      cpu: ${AWX_WEB_CPU_LIM}
+      memory: ${AWX_WEB_MEM_LIM}
+  
+  # Recursos para task containers - VALORES CALCULADOS DINAMICAMENTE
+  task_resource_requirements:
+    requests:
+      cpu: ${AWX_TASK_CPU_REQ}
+      memory: ${AWX_TASK_MEM_REQ}
+    limits:
+      cpu: ${AWX_TASK_CPU_LIM}
+      memory: ${AWX_TASK_MEM_LIM}
+  
+  # Persistência de projetos
   projects_persistence: true
   projects_storage_size: 8Gi
-  replicas: 0
-  web_replicas: 0
-  task_replicas: 1
+  projects_storage_access_mode: ReadWriteOnce
+  
+  # Configurações adicionais
+  postgres_configuration_secret: awx-postgres-configuration
+  postgres_storage_requirements:
+    requests:
+      storage: 8Gi
+    limits:
+      storage: 8Gi
 EOF
-)
 
-log_info "Verificando cluster existente..."
-if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
-    log_warning "Cluster '$CLUSTER_NAME' já existe. Deletando..."
-    kind delete cluster --name "$CLUSTER_NAME"
+    # Aplicar manifesto
+    kubectl apply -f /tmp/awx-instance.yaml -n "$AWX_NAMESPACE"
+    rm /tmp/awx-instance.yaml
+    
+    log_success "Instância AWX criada com recursos calculados dinamicamente!"
+}
+
+# ============================
+# MONITORAMENTO E FINALIZAÇÃO
+# ============================
+
+wait_for_awx() {
+    log_header "AGUARDANDO INSTALAÇÃO DO AWX"
+    
+    # Verificar se o namespace existe
+    if ! kubectl get namespace "$AWX_NAMESPACE" &> /dev/null; then
+        log_error "Namespace $AWX_NAMESPACE não existe!"
+        return 1
+    fi
+    
+    # Aguardar com timeout progressivo
+    local phases=("Pending" "ContainerCreating" "Running")
+    local timeout=120
+    
+    for phase in "${phases[@]}"; do
+        log_info "Aguardando pods na fase: $phase"
+        local elapsed=0
+        
+        while [ $elapsed -lt $timeout ]; do
+            local pod_count=$(kubectl get pods -n "$AWX_NAMESPACE" --field-selector=status.phase="$phase" --no-headers 2>/dev/null | wc -l)
+            
+            if [ "$pod_count" -gt 0 ]; then
+                log_success "Encontrados $pod_count pod(s) na fase $phase"
+                kubectl get pods -n "$AWX_NAMESPACE"
+                break
+            fi
+            
+            sleep 10
+            elapsed=$((elapsed + 10))
+            echo -n "."
+        done
+        echo ""
+    done
+    
+    # Verificação final com diagnóstico automático
+    if ! kubectl wait --for=condition=Ready pods --all -n "$AWX_NAMESPACE" --timeout=600s; then
+        log_error "Pods não ficaram prontos. Executando diagnóstico..."
+        diagnose_awx_pods
+        check_cluster_resources
+        check_registry
+        exit 1
+    fi
+}
+
+get_awx_password() {
+    log_info "Obtendo senha do administrador AWX..."
+    
+    # Aguardar secret da senha estar disponível
+    local timeout=300
+    local elapsed=0
+    while ! kubectl get secret awx-"$PERFIL"-admin-password -n "$AWX_NAMESPACE" &> /dev/null; do
+        if [ $elapsed -ge $timeout ]; then
+            log_error "Timeout aguardando senha do AWX. Verifique os logs:"
+            log_error "kubectl logs -n $AWX_NAMESPACE deployment/awx-operator-controller-manager"
+            exit 1
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+        echo -n "."
+    done
+    echo ""
+    
+    AWX_PASSWORD=$(kubectl get secret awx-"$PERFIL"-admin-password -n "$AWX_NAMESPACE" -o jsonpath='{.data.password}' | base64 --decode)
+}
+
+show_final_info() {
+    log_header "INSTALAÇÃO CONCLUÍDA"
+    
+    # Obter IP do nó
+    local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+    
+    echo ""
+    log_success "=== AWX IMPLANTADO COM SUCESSO ==="
+    echo ""
+    log_info "📋 INFORMAÇÕES DE ACESSO:"
+    log_info "   URL: ${GREEN}http://${node_ip}:${HOST_PORT}${NC}"
+    log_info "   Usuário: ${GREEN}admin${NC}"
+    log_info "   Senha: ${GREEN}$AWX_PASSWORD${NC}"
+    echo ""
+    log_info "🔧 CONFIGURAÇÃO DO SISTEMA:"
+    log_info "   Perfil: ${GREEN}$PERFIL${NC}"
+    log_info "   CPUs Detectadas: ${GREEN}$CORES${NC}"
+    log_info "   Memória Detectada: ${GREEN}${MEM_MB}MB${NC}"
+    log_info "   Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
+    log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
+    echo ""
+    log_info "📊 RECURSOS ALOCADOS:"
+    log_info "   Web CPU: ${GREEN}${AWX_WEB_CPU_REQ} - ${AWX_WEB_CPU_LIM}${NC}"
+    log_info "   Web Mem: ${GREEN}${AWX_WEB_MEM_REQ} - ${AWX_WEB_MEM_LIM}${NC}"
+    log_info "   Task CPU: ${GREEN}${AWX_TASK_CPU_REQ} - ${AWX_TASK_CPU_LIM}${NC}"
+    log_info "   Task Mem: ${GREEN}${AWX_TASK_MEM_REQ} - ${AWX_TASK_MEM_LIM}${NC}"
+    echo ""
+    log_info "🚀 COMANDOS ÚTEIS:"
+    log_info "   Ver pods: ${CYAN}kubectl get pods -n $AWX_NAMESPACE${NC}"
+    log_info "   Ver logs web: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-web${NC}"
+    log_info "   Ver logs task: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-task${NC}"
+    log_info "   Diagnosticar problemas: ${CYAN}diagnose_awx_pods${NC}"
+    log_info "   Deletar cluster: ${CYAN}kind delete cluster --name $CLUSTER_NAME${NC}"
+    echo ""
+    
+    if [ "$VERBOSE" = true ]; then
+        log_info "🔍 STATUS ATUAL DOS PODS:"
+        kubectl get pods -n "$AWX_NAMESPACE" -o wide
+    fi
+}
+
+# ============================
+# CONFIGURAÇÃO PADRÃO E PARSING
+# ============================
+
+# Valores padrão que não dependem do perfil
+INSTALL_DEPS_ONLY=false
+VERBOSE=true
+
+# Variáveis de recursos (pode forçar)
+FORCE_CPU=""
+FORCE_MEM_MB=""
+
+# Inicializar recursos ANTES do parsing das opções
+initialize_resources
+
+# Definir valores padrão que dependem do perfil
+DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
+DEFAULT_HOST_PORT=$DEFAULT_HOST_PORT
+
+# Parse das opções da linha de comando
+while getopts "c:p:f:m:dvh" opt; do
+    case ${opt} in
+        c)
+            if [ -z "$OPTARG" ]; then
+                log_error "Nome do cluster não pode estar vazio"
+                exit 1
+            fi
+            CLUSTER_NAME="$OPTARG"
+            ;;
+        p)
+            if ! validate_port "$OPTARG"; then
+                exit 1
+            fi
+            HOST_PORT="$OPTARG"
+            ;;
+        f)
+            if ! validate_cpu "$OPTARG"; then
+                exit 1
+            fi
+            FORCE_CPU="$OPTARG"
+            # Recalcular recursos com valor forçado
+            initialize_resources
+            DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
+            ;;
+        m)
+            if ! validate_memory "$OPTARG"; then
+                exit 1
+            fi
+            FORCE_MEM_MB="$OPTARG"
+            # Recalcular recursos com valor forçado
+            initialize_resources
+            DEFAULT_CLUSTER_NAME="awx-cluster-${PERFIL}"
+            ;;
+        d)
+            INSTALL_DEPS_ONLY=true
+            ;;
+        v)
+            VERBOSE=true
+            ;;
+        h)
+            show_help
+            exit 0
+            ;;
+        *)
+            log_error "Opção inválida: -$OPTARG"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# Aplicar valores padrão se não fornecidos
+CLUSTER_NAME=${CLUSTER_NAME:-$DEFAULT_CLUSTER_NAME}
+HOST_PORT=${HOST_PORT:-$DEFAULT_HOST_PORT}
+AWX_NAMESPACE="awx"
+
+# ============================
+# EXECUÇÃO PRINCIPAL
+# ============================
+
+log_header "INICIANDO IMPLANTAÇÃO AWX"
+
+log_info "💻 Recursos do Sistema:"
+log_info "   CPUs: ${GREEN}$CORES${NC}"
+log_info "   Memória: ${GREEN}${MEM_MB}MB${NC}"
+log_info "   Perfil: ${GREEN}$PERFIL${NC}"
+
+log_info "🎯 Configuração de Implantação:"
+log_info "   Ambiente: ${GREEN}$PERFIL${NC}"
+log_info "   Cluster: ${GREEN}$CLUSTER_NAME${NC}"
+log_info "   Porta: ${GREEN}$HOST_PORT${NC}"
+log_info "   Namespace: ${GREEN}$AWX_NAMESPACE${NC}"
+log_info "   Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
+log_info "   Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
+log_info "   Verbose: ${GREEN}$VERBOSE${NC}"
+
+# Instalar dependências
+install_dependencies
+
+# Se apenas instalação de dependências foi solicitada, sair
+if [ "$INSTALL_DEPS_ONLY" = true ]; then
+    log_success "✅ Dependências instaladas com sucesso!"
+    log_info "Execute o script novamente sem a opção -d para instalar o AWX"
+    exit 0
 fi
 
-log_info "Criando cluster Kind '$CLUSTER_NAME'..."
-# Write the inline Kind configuration to a temporary file
-tmp_kind=$(mktemp)
-echo "$KIND_CONFIG" > "$tmp_kind"
-kind create cluster --name "$CLUSTER_NAME" --config "$tmp_kind"
-rm "$tmp_kind"
+# Continuar com a instalação completa
+create_kind_cluster
+create_execution_environment
+install_awx
+wait_for_awx
+get_awx_password
+show_final_info
 
-log_success "Cluster criado com sucesso!"
-
-# Aguardar cluster estar pronto
-log_info "Aguardando cluster estar pronto..."
-kubectl wait --for=condition=Ready nodes --all --timeout=300s
-
-log_info "Adicionando repositório Helm do AWX Operator..."
-helm repo add awx-operator https://ansible-community.github.io/awx-operator-helm/ 2>/dev/null || true
-helm repo update
-
-log_info "Instalando AWX Operator usando Helm..."
-helm upgrade --install awx-operator awx-operator/awx-operator -n awx --create-namespace --wait
-
-log_info "Aplicando manifesto da instância AWX..."
-# Write the inline AWX manifest to a temporary file
-tmp_awx=$(mktemp)
-echo "$AWX_MANIFEST" > "$tmp_awx"
-kubectl apply -f "$tmp_awx" --namespace awx
-rm "$tmp_awx"
-
-log_success "Implantação concluída!"
-
-# Show the admin password
-log_info "Aguardando senha do administrador AWX estar disponível..."
-timeout=300
-elapsed=0
-while ! kubectl get secret awx-prd-admin-password -n awx &> /dev/null; do
-  if [ $elapsed -ge $timeout ]; then
-    log_error "Timeout aguardando senha do AWX. Verifique os logs: kubectl logs -n awx deployment/awx-operator-controller-manager"
-    exit 1
-  fi
-  sleep 5
-  elapsed=$((elapsed + 5))
-  echo -n "."
-done
-echo ""
-
-AWX_PASSWORD=$(kubectl get secret awx-prd-admin-password -n awx -o jsonpath='{.data.password}' | base64 --decode)
-
-log_success "=== AWX IMPLANTADO COM SUCESSO ==="
-echo ""
-log_info "Acesse AWX em: http://localhost:${HOST_PORT}"
-log_info "Usuário: admin"
-log_info "Senha: $AWX_PASSWORD"
-echo ""
-log_info "Comandos úteis:"
-log_info "  Ver pods: kubectl get pods -n awx"
-log_info "  Ver logs: kubectl logs -n awx deployment/awx-prd-web"
-log_info "  Deletar cluster: kind delete cluster --name $CLUSTER_NAME"
+log_success "🎉 Instalação do AWX concluída com sucesso!"

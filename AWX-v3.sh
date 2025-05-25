@@ -863,7 +863,7 @@ show_final_info() {
 # ============================
 
 # Valores padrão que não dependem do perfil
-DEFAULT_HOST_PORT=30080
+DEFAULT_HOST_PORT=8080
 INSTALL_DEPS_ONLY=false
 VERBOSE=false
 

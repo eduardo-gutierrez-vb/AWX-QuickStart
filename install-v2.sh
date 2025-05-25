@@ -158,8 +158,30 @@ show_main_menu() {
 
 read_user_choice() {
     local choice
-    read -r choice
-    echo "$choice"
+    while true; do
+        read -r -n1 choice
+        echo  # Adiciona nova linha após a entrada
+        
+        case "$choice" in
+            1|2|3|4|5)
+                echo "$choice"
+                return 0
+                ;;
+            "")
+                # Enter pressionado sem input
+                echo -ne "\033[1A"  # Move cursor para cima
+                echo -ne "\033[2K"  # Limpa linha
+                show_main_menu
+                ;;
+            *)
+                # Caractere inválido
+                echo -ne "\033[1A"  # Move cursor para cima
+                echo -ne "\033[2K"  # Limpa linha
+                log_error "Opção inválida: '$choice'. Use números de 1 a 5."
+                show_main_menu
+                ;;
+        esac
+    done
 }
 
 # Menu de configuração manual
@@ -686,29 +708,29 @@ main() {
                 log_info "Modo automático selecionado"
                 advanced_resource_detection
                 show_resource_summary
-                break
+                break  # Sai do loop após seleção válida
                 ;;
             2)
                 log_info "Modo manual selecionado"
                 show_manual_config_menu
                 advanced_resource_detection
                 show_resource_summary
-                break
+                break  # Sai do loop após seleção válida
                 ;;
             3)
                 log_info "Instalando apenas dependências"
                 INSTALL_DEPS_ONLY=true
-                break
+                break  # Sai do loop após seleção válida
                 ;;
             4)
                 show_help
+                echo -ne "\n${INFO}Pressione Enter para continuar...${NC}"
+                read -r
+                continue  # Volta ao menu principal
                 ;;
             5)
                 log_info "Saindo..."
                 exit 0
-                ;;
-            *)
-                log_error "Opção inválida. Escolha um número de 1 a 5."
                 ;;
         esac
     done

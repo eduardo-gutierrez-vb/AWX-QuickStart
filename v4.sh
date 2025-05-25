@@ -2,7 +2,7 @@
 set -e
 
 # ============================
-# CONFIGURAÇÕES PERSONALIZÁVEIS
+# CONFIGURAÇÕES PERSONALIZÁVEISs
 # ============================
 
 # Arquivo de configuração personalizada (opcional)

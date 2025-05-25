@@ -121,58 +121,145 @@ determine_profile() {
     fi
 }
 
+calculate_cpu_reserved() {
+    local total_cores=$1
+    local reserved_millicores=0
+
+    # Fórmula baseada nas reservas padrão do GKE/EKS/AKS
+    if [ "$total_cores" -ge 1 ]; then
+        # Primeiro core: 6% (60 millicores)
+        reserved_millicores=$((reserved_millicores + 60))
+        remaining_cores=$((total_cores - 1))
+    fi
+
+    if [ "$remaining_cores" -ge 1 ]; then
+        # Segundo core: 1% (10 millicores)
+        reserved_millicores=$((reserved_millicores + 10))
+        remaining_cores=$((remaining_cores - 1))
+    fi
+
+    if [ "$remaining_cores" -ge 2 ]; then
+        # Próximos 2 cores: 0.5% cada (5 millicores por core)
+        reserved_millicores=$((reserved_millicores + 10))
+        remaining_cores=$((remaining_cores - 2))
+    fi
+
+    if [ "$remaining_cores" -gt 0 ]; then
+        # Cores restantes: 0.25% cada (2.5 millicores por core)
+        reserved_millicores=$((reserved_millicores + (remaining_cores * 25 / 10)))
+    fi
+
+    echo $reserved_millicores
+}
+
+calculate_memory_reserved() {
+    local total_mem_mb=$1
+    local reserved_mb=0
+
+    # Fórmula baseada no modelo escalonado da GKE
+    if [ "$total_mem_mb" -lt 1024 ]; then
+        reserved_mb=255
+    else
+        # 25% dos primeiros 4 GiB
+        first_4gb=$((total_mem_mb > 4096 ? 4096 : total_mem_mb))
+        reserved_mb=$((first_4gb * 25 / 100))
+        remaining_mb=$((total_mem_mb - first_4gb))
+
+        # 20% dos próximos 4 GiB (até 8 GiB)
+        if [ "$remaining_mb" -gt 0 ]; then
+            next_4gb=$((remaining_mb > 4096 ? 4096 : remaining_mb))
+            reserved_mb=$((reserved_mb + next_4gb * 20 / 100))
+            remaining_mb=$((remaining_mb - next_4gb))
+        fi
+
+        # 10% dos próximos 8 GiB (até 16 GiB)
+        if [ "$remaining_mb" -gt 0 ]; then
+            next_8gb=$((remaining_mb > 8192 ? 8192 : remaining_mb))
+            reserved_mb=$((reserved_mb + next_8gb * 10 / 100))
+            remaining_mb=$((remaining_mb - next_8gb))
+        fi
+
+        # 6% dos próximos 112 GiB (até 128 GiB)
+        if [ "$remaining_mb" -gt 0 ]; then
+            next_112gb=$((remaining_mb > 114688 ? 114688 : remaining_mb))
+            reserved_mb=$((reserved_mb + next_112gb * 6 / 100))
+            remaining_mb=$((remaining_mb - next_112gb))
+        fi
+
+        # 2% de qualquer memória acima de 128 GiB
+        if [ "$remaining_mb" -gt 0 ]; then
+            reserved_mb=$((reserved_mb + remaining_mb * 2 / 100))
+        fi
+    fi
+
+    # Adicionar reserva para eviction threshold
+    reserved_mb=$((reserved_mb + 100))
+
+    echo $reserved_mb
+}
+
 # Calcula recursos disponíveis considerando overhead do sistema
 calculate_available_resources() {
     local total_cores=$1
     local total_mem_mb=$2
     local profile=$3
-    
-    # Reserva recursos para o sistema operacional
-    local system_cpu_reserve=1
-    local system_mem_reserve_mb=1024
-    
-    # Calcula recursos disponíveis
-    local available_cores=$((total_cores - system_cpu_reserve))
-    local available_mem_mb=$((total_mem_mb - system_mem_reserve_mb))
-    
-    # Aplica percentual baseado no perfil
-    if [ "$profile" = "prod" ]; then
-        # Produção: usa 70% dos recursos disponíveis para dar margem
-        NODE_CPU=$((available_cores * 70 / 100))
-        NODE_MEM_MB=$((available_mem_mb * 70 / 100))
-    else
-        # Desenvolvimento: usa 80% dos recursos disponíveis
-        NODE_CPU=$((available_cores * 80 / 100))
-        NODE_MEM_MB=$((available_mem_mb * 80 / 100))
-    fi
-    
-    # Garante valores mínimos
-    [ "$NODE_CPU" -lt 1 ] && NODE_CPU=1
-    [ "$NODE_MEM_MB" -lt 512 ] && NODE_MEM_MB=512
-    
-    log_debug "Recursos totais: CPU=$total_cores, MEM=${total_mem_mb}MB"
-    log_debug "Recursos sistema: CPU=$system_cpu_reserve, MEM=${system_mem_reserve_mb}MB"
-    log_debug "Recursos disponíveis: CPU=$available_cores, MEM=${available_mem_mb}MB"
-    log_debug "Recursos alocados: CPU=$NODE_CPU, MEM=${NODE_MEM_MB}MB"
+
+    # Calcular reservas usando fórmulas otimizadas
+    local cpu_reserved_millicores=$(calculate_cpu_reserved "$total_cores")
+    local mem_reserved_mb=$(calculate_memory_reserved "$total_mem_mb")
+
+    # Recursos disponíveis após reservas
+    local available_cpu=$((total_cores * 1000 - cpu_reserved_millicores))
+    local available_mem=$((total_mem_mb - mem_reserved_mb))
+
+    # Aplicar fator de segurança conforme ambiente
+    local safety_factor=70
+    [ "$profile" = "dev" ] && safety_factor=80
+
+    available_cpu=$((available_cpu * safety_factor / 100))
+    available_mem=$((available_mem * safety_factor / 100))
+
+    # Garantir valores mínimos operacionais
+    [ "$available_cpu" -lt 500 ] && available_cpu=500  # 0.5 core mínimo
+    [ "$available_mem" -lt 512 ] && available_mem=512   # 512MB mínimo
+
+    echo "AVAILABLE_CPU_MILLICORES=$available_cpu"
+    echo "AVAILABLE_MEMORY_MB=$available_mem"
 }
 
 # Calcula réplicas baseado no perfil e recursos
 calculate_replicas() {
     local profile=$1
-    local cores=$2
-    
+    local available_cpu_millicores=$2
+    local workload_type=$3  # web, task, etc
+
     if [ "$profile" = "prod" ]; then
-        WEB_REPLICAS=$((cores / 2))
-        TASK_REPLICAS=$((cores / 2))
-        # Mínimo de 1, máximo de 3 para cada
-        [ "$WEB_REPLICAS" -lt 1 ] && WEB_REPLICAS=1
-        [ "$TASK_REPLICAS" -lt 1 ] && TASK_REPLICAS=1
-        [ "$WEB_REPLICAS" -gt 3 ] && WEB_REPLICAS=3
-        [ "$TASK_REPLICAS" -gt 3 ] && TASK_REPLICAS=3
+        # Cálculo baseado em densidade de carga com margem de segurança
+        local base_replicas=$((available_cpu_millicores / 1000))
+        
+        # Ajustes por tipo de workload
+        case "$workload_type" in
+            "web")
+                replicas=$((base_replicas * 2 / 3))  # Prioriza CPUs para tarefas
+                ;;
+            "task")
+                replicas=$((base_replicas / 2))
+                ;;
+            *)
+                replicas=$base_replicas
+                ;;
+        esac
+
+        # Limites operacionais
+        [ "$replicas" -lt 2 ] && replicas=2  # Mínimo 2 em produção
+        [ "$replicas" -gt 10 ] && replicas=10 # Máximo 10 por serviço
     else
-        WEB_REPLICAS=1
-        TASK_REPLICAS=1
+        # Desenvolvimento: 1 réplica com possibilidade de override
+        replicas=1
+        [ "$available_cpu_millicores" -ge 2000 ] && replicas=2 # Caso máquinas grandes
     fi
+
+    echo $replicas
 }
 
 # ============================

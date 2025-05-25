@@ -185,19 +185,22 @@ echo "pywinrm>=0.4.3" > requirements.txt
 
 # Arquivo execution-environment.yml com patch para repositórios
 cat <<EOF > execution-environment.yml
-version: 1
-build_arg_defaults:
-  EE_BASE_IMAGE: 'quay.io/ansible/awx-ee:24.6.1'
+---
+version: 3
+images:
+  base_image:
+    name: quay.io/ansible/awx-ee:24.6.1
 dependencies:
   galaxy: requirements.yml
   python: requirements.txt
 additional_build_steps:
-  prepend:
+  prepend_base:
     - RUN sed -i 's|mirrorlist.centos.org|vault.centos.org|g' /etc/yum.repos.d/CentOS-*
     - RUN sed -i 's|#baseurl=http://vault.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
     - RUN sed -i 's|stream/8|8.5.2111|g' /etc/yum.repos.d/CentOS-*
     - RUN dnf clean all
     - RUN dnf makecache
+
 
 # Construção da imagem EE
 echo "Construindo e enviando EE..."

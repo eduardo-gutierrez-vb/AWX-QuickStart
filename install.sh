@@ -843,7 +843,7 @@ create_production_ready_ee_files() {
 version: 3
 images:
   base_image:
-    name: quay.io/centos/centos:stream9
+    name: quay.io/ansible/awx-ee:latest
 dependencies:
   galaxy: requirements.yml
   python: requirements.txt

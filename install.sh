@@ -486,6 +486,8 @@ EOF
 # ============================
 
 install_dependencies() {
+
+    
     log_header "VERIFICAÇÃO E INSTALAÇÃO DE DEPENDÊNCIAS"
     
     # Verificar se estamos no Ubuntu
@@ -525,8 +527,8 @@ install_dependencies() {
     
     # Verificar se Docker está funcionando
     check_docker_running
-    
-    validate_environment
+
+
 
     # Iniciar registry local
     start_local_registry
@@ -701,6 +703,7 @@ check_docker_running() {
 }
 
 start_local_registry() {
+    validate_environment
     docker network create kind 2>/dev/null || true
     docker run -d --network kind --restart=always -p ${REGISTRY_PORT}:5000 --name kind-registry registry:2
     kubectl apply -f - <<EOF

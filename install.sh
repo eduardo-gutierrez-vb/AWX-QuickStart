@@ -1059,9 +1059,9 @@ create_execution_environment() {
     # Configurar build args baseado no ambiente
     local build_args=""
     if [ "$VERBOSE" = true ]; then
-        build_args="--verbosity 2"
+        build_args="--verbosity 3"
     else
-        build_args="--verbosity 1"
+        build_args="--verbosity 3"
     fi
     
     # Configurar timeout maior e retry melhorado

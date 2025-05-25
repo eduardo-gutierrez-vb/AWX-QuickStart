@@ -440,7 +440,9 @@ show_help() {
 ${CYAN}=== Script de Implantação AWX com Kind ===${NC}
 
 ${WHITE}USO:${NC}
-    $0 [OPÇÕES]... ${WHITE}OPÇÕES:${NC}
+    $0 [OPÇÕES]...
+
+${WHITE}OPÇÕES:${NC}
     ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: será calculado baseado no perfil)
     ${GREEN}-p PORTA${NC}     Porta do host para acessar AWX (padrão: 8080)
     ${GREEN}-f CPU${NC}       Forçar número de CPUs (ex: 4)
@@ -806,7 +808,7 @@ EOF
 }
 
 # ============================
-# VALIDAÇÃO E ARQUIVOS EE CORRIGIDOS - BASEADO NAS MELHORES PRÁTICAS
+# VALIDAÇÃO E ARQUIVOS EE CORRIGIDOS
 # ============================
 
 validate_ee_definition() {
@@ -843,9 +845,9 @@ images:
   base_image:
     name: debian:bookworm-slim
     additional_packages:
-      - python3
-      - python3-pip
-      - python3-apt
+      - ca-certificates
+      - gnupg
+      - software-properties-common
 
 dependencies:
   galaxy: requirements.yml
@@ -854,29 +856,34 @@ dependencies:
 
 additional_build_steps:
   prepend_base:
-    - RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        gnupg \
-        software-properties-common \
+    - RUN echo "deb http://deb.debian.org/debian bookworm main contrib non-free" > /etc/apt/sources.list && \
+        echo "deb-src http://deb.debian.org/debian bookworm main contrib non-free" >> /etc/apt/sources.list && \
+        echo "deb http://security.debian.org/debian-security bookworm-security main contrib non-free" >> /etc/apt/sources.list && \
+        echo "deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free" >> /etc/apt/sources.list
+    - RUN apt-get update --allow-insecure-repositories && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-apt \
         python3-dev \
         libssl-dev \
         sudo \
         curl \
         git \
         wget \
-        rsync
-    - RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+        rsync \
+        openssh-client \
+        && apt-get clean && rm -rf /var/lib/apt/lists/*
 
   append_final:
-    - RUN python3 -m pip install --upgrade pip
+    - RUN python3 -m pip install --upgrade pip setuptools wheel
     - RUN apt-get autoremove -y && \
         apt-get clean && \
         rm -rf \
           /var/lib/apt/lists/* \
           /tmp/* \
           /var/tmp/*
-    - RUN groupadd -g 1000 ansible
-    - RUN useradd -u 1000 -g ansible -m -d /runner ansible
+    - RUN groupadd -g 1000 ansible || true
+    - RUN useradd -u 1000 -g ansible -m -d /runner ansible || true
     - USER ansible
     - WORKDIR /runner
     - HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 CMD ansible --version
@@ -919,6 +926,7 @@ curl [platform:deb]
 git [platform:deb]
 wget [platform:deb]
 rsync [platform:deb]
+openssh-client [platform:deb]
 EOF
 }
 
@@ -1025,7 +1033,7 @@ create_execution_environment() {
     
     log_info "Usando container runtime: $container_runtime"
     
-    # Script de build automatizado baseado no documento anexado
+    # Script de build automatizado corrigido
     cat > build-ee.sh << 'EOF'
 #!/bin/bash
 set -eo pipefail
@@ -1039,15 +1047,27 @@ command -v ansible-builder >/dev/null 2>&1 || {
   pip install ansible-builder
 }
 
-# Construção da imagem
+# Construção da imagem com flags otimizadas
 ansible-builder build \
   -f execution-environment.yml \
   -t "${EE_NAME}:${TAG}" \
   --build-arg ANSIBLE_PYTHON_INTERPRETER="/usr/bin/python3" \
-  -v 2
+  --container-runtime docker \
+  --verbosity 2 \
+  .
+
+# Verificar se a imagem foi criada
+if docker images | grep -q "${EE_NAME}"; then
+    echo "Imagem ${EE_NAME}:${TAG} criada com sucesso!"
+else
+    echo "Erro: Imagem não foi criada corretamente"
+    exit 1
+fi
 
 # Testes básicos
+echo "Executando testes básicos..."
 docker run --rm "${EE_NAME}:${TAG}" ansible --version
+docker run --rm "${EE_NAME}:${TAG}" python3 --version
 docker run --rm "${EE_NAME}:${TAG}" ansible-galaxy collection list
 EOF
 

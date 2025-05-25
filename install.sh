@@ -526,6 +526,8 @@ install_dependencies() {
     # Verificar se Docker está funcionando
     check_docker_running
     
+    validate_environment
+
     # Iniciar registry local
     start_local_registry
     

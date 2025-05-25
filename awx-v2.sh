@@ -195,11 +195,11 @@ dependencies:
   python: requirements.txt
 additional_build_steps:
   prepend_base:
-    - RUN sed -i 's|mirrorlist.centos.org|vault.centos.org|g' /etc/yum.repos.d/CentOS-*
-    - RUN sed -i 's|#baseurl=http://vault.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
-    - RUN sed -i 's|stream/8|8.5.2111|g' /etc/yum.repos.d/CentOS-*
-    - RUN dnf clean all
-    - RUN dnf makecache
+    - RUN sed -i 's|mirrorlist.centos.org|vault.centos.org|g' /etc/yum.repos.d/CentOS-* || true
+    - RUN sed -i 's|#baseurl=http://vault.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-* || true
+    - RUN sed -i 's|stream/8|8.5.2111|g' /etc/yum.repos.d/CentOS-* || true
+    - RUN dnf clean all || true
+    - RUN dnf makecache || true
 EOF
 
 # Construção da imagem EE

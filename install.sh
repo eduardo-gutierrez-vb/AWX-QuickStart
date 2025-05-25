@@ -440,9 +440,7 @@ show_help() {
 ${CYAN}=== Script de Implantação AWX com Kind ===${NC}
 
 ${WHITE}USO:${NC}
-    $0 [OPÇÕES]
-
-${WHITE}OPÇÕES:${NC}
+    $0 [OPÇÕES]... ${WHITE}OPÇÕES:${NC}
     ${GREEN}-c NOME${NC}      Nome do cluster Kind (padrão: será calculado baseado no perfil)
     ${GREEN}-p PORTA${NC}     Porta do host para acessar AWX (padrão: 8080)
     ${GREEN}-f CPU${NC}       Forçar número de CPUs (ex: 4)
@@ -835,110 +833,92 @@ validate_ee_definition() {
 }
 
 create_production_ready_ee_files() {
-    log_info "Criando arquivos de configuração para produção..."
+    log_info "Criando arquivos de configuração baseados em Debian/Ubuntu..."
     
-    # execution-environment.yml otimizado - CORREÇÃO BASEADA NAS MELHORES PRÁTICAS
+    # execution-environment.yml otimizado baseado no documento anexado
     cat > execution-environment.yml << 'EOF'
 ---
 version: 3
 images:
   base_image:
-    name: quay.io/ansible/awx-ee:latest
+    name: debian:bookworm-slim
+    additional_packages:
+      - python3
+      - python3-pip
+      - python3-apt
+
 dependencies:
   galaxy: requirements.yml
   python: requirements.txt
   system: bindep.txt
-  ansible_core:
-    package_pip: ansible-core>=2.15.0,<2.17.0
-  ansible_runner:
-    package_pip: ansible-runner>=2.3.0,<2.5.0
+
 additional_build_steps:
   prepend_base:
-    - RUN dnf clean all && dnf makecache --refresh
-    - RUN dnf update -y --nodocs --setopt=install_weak_deps=False
-    - RUN dnf install -y git curl wget rsync openssh-clients
-  prepend_galaxy:
-    - RUN git config --global --add safe.directory '*'
-    - RUN mkdir -p /tmp/ansible-collections
+    - RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        gnupg \
+        software-properties-common \
+        python3-dev \
+        libssl-dev \
+        sudo \
+        curl \
+        git \
+        wget \
+        rsync
+    - RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+
   append_final:
-    - RUN rm -rf /tmp/* /var/tmp/* /root/.cache /root/.ansible
-    - RUN python -m pip check
-    - RUN ansible-galaxy collection list
+    - RUN python3 -m pip install --upgrade pip
+    - RUN apt-get autoremove -y && \
+        apt-get clean && \
+        rm -rf \
+          /var/lib/apt/lists/* \
+          /tmp/* \
+          /var/tmp/*
+    - RUN groupadd -g 1000 ansible
+    - RUN useradd -u 1000 -g ansible -m -d /runner ansible
+    - USER ansible
+    - WORKDIR /runner
+    - HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 CMD ansible --version
 EOF
 
-    # requirements.yml com versões específicas - CORREÇÃO
+    # requirements.yml com collections essenciais
     cat > requirements.yml << 'EOF'
 ---
 collections:
+  - name: ansible.builtin
   - name: community.general
     version: ">=8.0.0"
-  - name: community.windows
-    version: ">=2.2.0"
-  - name: ansible.windows
-    version: ">=2.3.0"
-  - name: kubernetes.core
-    version: ">=3.0.0"
+  - name: community.docker
+    version: ">=3.8.0"
   - name: community.crypto
     version: ">=2.15.0"
-  - name: amazon.aws
-    version: ">=7.0.0"
-  - name: azure.azcollection
-    version: ">=2.0.0"
-  - name: google.cloud
-    version: ">=1.3.0"
+  - name: kubernetes.core
+    version: ">=3.0.0"
 EOF
 
-    # requirements.txt com dependências Python compatíveis - CORREÇÃO
+    # requirements.txt com dependências Python compatíveis
     cat > requirements.txt << 'EOF'
-# Core Ansible - versões compatíveis
-ansible-core>=2.15.0,<2.17.0
-ansible-runner>=2.3.0,<2.5.0
-
-# Dependências de rede e criptografia
+ansible-core>=2.15.0,<2.16.0
+ansible-runner>=2.3.0,<2.4.0
+docker>=7.0.0
 netaddr>=0.10.1
 cryptography>=41.0.0
 requests>=2.31.0
-urllib3>=2.0.0,<3.0.0
-
-# Cloud providers
-boto3>=1.26.0
-botocore>=1.29.0
-azure-identity>=1.15.0
-google-cloud-compute>=1.15.0
-
-# Kubernetes e containers
-kubernetes>=28.1.0
 pyyaml>=6.0.1
-
-# Ferramentas de sistema
+kubernetes>=28.1.0
 psutil>=5.9.0
-paramiko>=2.12.0
-jinja2>=3.1.2
 EOF
 
-    # bindep.txt com dependências de sistema - CORREÇÃO
+    # bindep.txt com dependências de sistema para Debian
     cat > bindep.txt << 'EOF'
-# Dependências de compilação
-gcc [platform:rpm compile]
-python3-devel [platform:rpm compile]
-openssl-devel [platform:rpm compile]
-
-# Kerberos e autenticação
-krb5-devel [platform:rpm]
-libffi-devel [platform:rpm]
-
-# Ferramentas de rede
-curl
-wget
-rsync
-openssh-clients [platform:rpm]
-
-# Git para coleções
-git
-
-# Dependências adicionais para collections
-libxml2-devel [platform:rpm compile]
-libxslt-devel [platform:rpm compile]
+python3-dev [platform:deb]
+libssl-dev [platform:deb]
+sudo [platform:deb]
+curl [platform:deb]
+git [platform:deb]
+wget [platform:deb]
+rsync [platform:deb]
 EOF
 }
 
@@ -952,6 +932,9 @@ push_to_local_registry() {
         log_error "Registry local não está disponível em localhost:${REGISTRY_PORT}"
         return 1
     fi
+    
+    # Tag da imagem
+    $runtime tag awx-enterprise-ee:latest localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
     
     # Push da imagem
     if $runtime push localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest; then
@@ -999,7 +982,7 @@ test_execution_environment() {
 }
 
 # ============================
-# CRIAÇÃO DO EXECUTION ENVIRONMENT CORRIGIDA - BASEADA NAS MELHORES PRÁTICAS
+# CRIAÇÃO DO EXECUTION ENVIRONMENT CORRIGIDA
 # ============================
 
 create_execution_environment() {
@@ -1016,7 +999,7 @@ create_execution_environment() {
         source "$HOME/ansible-ee-venv/bin/activate"
     fi
     
-    log_info "Preparando Execution Environment..."
+    log_info "Preparando Execution Environment baseado em Debian/Ubuntu..."
     
     # Criar diretório de trabalho
     EE_DIR="/tmp/awx-ee-build-$(date +%s)"
@@ -1042,16 +1025,37 @@ create_execution_environment() {
     
     log_info "Usando container runtime: $container_runtime"
     
-    # Executar build com configurações corrigidas - CORREÇÃO DA FLAG VERBOSITY
-    local build_command="ansible-builder build \
-        --tag localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
-        --file execution-environment.yml \
-        --container-runtime $container_runtime \
-        -v 2"
+    # Script de build automatizado baseado no documento anexado
+    cat > build-ee.sh << 'EOF'
+#!/bin/bash
+set -eo pipefail
+
+EE_NAME="awx-enterprise-ee"
+TAG="latest"
+
+# Validar pré-requisitos
+command -v ansible-builder >/dev/null 2>&1 || { 
+  echo >&2 "ansible-builder necessário. Instalando...";
+  pip install ansible-builder
+}
+
+# Construção da imagem
+ansible-builder build \
+  -f execution-environment.yml \
+  -t "${EE_NAME}:${TAG}" \
+  --build-arg ANSIBLE_PYTHON_INTERPRETER="/usr/bin/python3" \
+  -v 2
+
+# Testes básicos
+docker run --rm "${EE_NAME}:${TAG}" ansible --version
+docker run --rm "${EE_NAME}:${TAG}" ansible-galaxy collection list
+EOF
+
+    chmod +x build-ee.sh
     
-    log_info "Executando: $build_command"
+    log_info "Executando build do EE..."
     
-    if eval "$build_command"; then
+    if ./build-ee.sh; then
         log_success "Build do EE concluído com sucesso!"
         
         # Verificar imagem criada

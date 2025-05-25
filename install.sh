@@ -303,8 +303,8 @@ spec:
   admin_email: admin@example.com
   projects_persistence: true
   projects_storage_size: 8Gi
-  replicas: 1
-  web_replicas: 1
+  replicas: 0
+  web_replicas: 0
   task_replicas: 1
 EOF
 )

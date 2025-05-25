@@ -59,6 +59,59 @@ DEFAULT_HOST_PORT=8080
 REGISTRY_PORT=5001
 
 # ============================
+# COMANDOS DE DIAGNÓSTICO MELHORADOS
+# ============================
+
+# Função completa de diagnóstico de pods AWX
+diagnose_awx_pods() {
+    echo "=== STATUS DOS PODS AWX ==="
+    kubectl get pods -n $AWX_NAMESPACE -o wide
+    
+    echo -e "\n=== EVENTOS DOS PODS ==="
+    kubectl get events -n $AWX_NAMESPACE --sort-by=.metadata.creationTimestamp
+    
+    echo -e "\n=== LOGS DOS PODS COM PROBLEMA ==="
+    for pod in $(kubectl get pods -n $AWX_NAMESPACE --field-selector=status.phase=Failed -o name 2>/dev/null); do
+        echo "Logs do $pod:"
+        kubectl logs -n $AWX_NAMESPACE $pod --previous --tail=50 2>/dev/null || true
+    done
+}
+
+# Verificação de recursos do cluster
+check_cluster_resources() {
+    echo "=== RECURSOS DO CLUSTER ==="
+    kubectl top nodes 2>/dev/null || echo "Metrics server não disponível"
+    kubectl top pods -n $AWX_NAMESPACE 2>/dev/null || echo "Metrics server não disponível"
+    
+    echo -e "\n=== CAPACIDADE DO CLUSTER ==="
+    kubectl describe nodes | grep -A 5 "Allocated resources"
+}
+
+# Verificação do registry local
+check_registry() {
+    echo "=== STATUS DO REGISTRY LOCAL ==="
+    docker ps | grep kind-registry
+    curl -s http://localhost:${REGISTRY_PORT}/v2/_catalog 2>/dev/null || echo "Registry não disponível"
+}
+
+# Limpeza e restart completo
+reset_awx_deployment() {
+    log_warning "Resetando deployment AWX..."
+    kubectl delete awx awx-${PERFIL} -n $AWX_NAMESPACE --ignore-not-found=true
+    kubectl delete pods --all -n $AWX_NAMESPACE
+    sleep 30
+    kubectl apply -f /tmp/awx-instance.yaml -n $AWX_NAMESPACE
+}
+
+# Verificação de conectividade com registry
+test_registry_connectivity() {
+    kubectl run test-registry --image=localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
+        --restart=Never -n $AWX_NAMESPACE --command -- sleep 3600 2>/dev/null || true
+    kubectl wait --for=condition=Ready pod/test-registry -n $AWX_NAMESPACE --timeout=60s 2>/dev/null || true
+    kubectl delete pod test-registry -n $AWX_NAMESPACE 2>/dev/null || true
+}
+
+# ============================
 # VALIDAÇÃO E UTILITÁRIOS
 # ============================
 
@@ -124,7 +177,7 @@ validate_environment() {
     # 4. Verificar redes residuais
     if docker network inspect kind >/dev/null 2>&1; then
         log_info "Removendo rede kind residual..."
-        docker network rm kind
+        docker network rm kind 2>/dev/null || true
     fi
 }
 
@@ -133,7 +186,7 @@ check_port_availability() {
     log_subheader "VERIFICANDO PORTA $port"
     
     # Verificar processos locais
-    local pid=$(lsof -t -i :$port)
+    local pid=$(lsof -t -i :$port 2>/dev/null || true)
     if [ -n "$pid" ]; then
         log_error "Conflito de porta detectado:"
         lsof -i :$port
@@ -142,7 +195,7 @@ check_port_availability() {
     fi
     
     # Verificar containers Docker
-    local container=$(docker ps --format '{{.Names}}' | grep ".*${port}->${port}/tcp")
+    local container=$(docker ps --format '{{.Names}}' | grep ".*${port}->${port}/tcp" || true)
     if [ -n "$container" ]; then
         log_error "Container Docker usando a porta:"
         docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep "$port"
@@ -359,8 +412,6 @@ calculate_resources_with_feedback() {
     export PERFIL=$profile
 }
 
-
-
 # ============================
 # INICIALIZAÇÃO DE RECURSOS CORRIGIDA
 # ============================
@@ -452,7 +503,7 @@ install_dependencies() {
     sudo apt-get install -y \
         python3 python3-pip python3-venv git curl wget \
         ca-certificates gnupg2 lsb-release build-essential \
-        software-properties-common apt-transport-https bc
+        software-properties-common apt-transport-https bc jq lsof
     
     # Instalar Python 3.9
     install_python39
@@ -726,7 +777,7 @@ EOF
     configure_registry_for_cluster
 }
 
-# Função corrigida para configurar registry - CORREÇÃO DO CONFIGMAP
+# Função corrigida para configurar registry no cluster - CORREÇÃO DO CONFIGMAP
 configure_registry_for_cluster() {
     log_subheader "Configurando Registry Local"
     
@@ -757,6 +808,156 @@ EOF
 }
 
 # ============================
+# CRIAÇÃO DE ARQUIVOS EE OTIMIZADOS
+# ============================
+
+create_optimized_ee_files() {
+    log_info "Criando arquivos de configuração EE otimizados..."
+    
+    # Arquivo requirements.yml para coleções enterprise
+    cat > requirements.yml << 'EOF'
+---
+collections:
+  # Windows e Active Directory
+  - name: community.windows
+    version: ">=2.2.0"
+  - name: ansible.windows
+    version: ">=2.3.0"
+  - name: microsoft.ad
+    version: ">=1.5.0"
+  
+  # SAP
+  - name: community.sap_libs
+    version: ">=1.4.0"
+  
+  # Geral
+  - name: community.general
+    version: ">=8.0.0"
+  - name: community.crypto
+    version: ">=2.15.0"
+  - name: kubernetes.core
+    version: ">=3.0.0"
+  
+  # Redes e infraestrutura
+  - name: cisco.ios
+    version: ">=5.0.0"
+  - name: community.network
+    version: ">=5.0.0"
+  
+  # Cloud providers
+  - name: amazon.aws
+    version: ">=7.0.0"
+  - name: azure.azcollection
+    version: ">=2.0.0"
+  - name: google.cloud
+    version: ">=1.3.0"
+EOF
+
+    # Arquivo requirements.txt para pacotes Python otimizados
+    cat > requirements.txt << 'EOF'
+# Windows/AD
+pywinrm>=0.4.3
+pykerberos>=1.2.4
+requests-kerberos>=0.14.0
+requests-ntlm>=1.2.0
+
+# SAP
+pyrfc>=3.3
+pyhdb>=0.3.4
+
+# Networking
+netaddr>=0.10.1
+jinja2>=3.1.2
+
+# Cloud
+boto3>=1.26.0
+azure-identity>=1.15.0
+google-cloud-compute>=1.15.0
+
+# Core
+cryptography>=41.0.0
+requests>=2.31.0
+urllib3>=2.0.0
+pyyaml>=6.0.1
+kubernetes>=28.1.0
+EOF
+
+    # Arquivo bindep.txt para dependências do sistema
+    cat > bindep.txt << 'EOF'
+# Compilação
+gcc [platform:rpm compile]
+python3-devel [platform:rpm]
+openssl-devel [platform:rpm]
+
+# Windows/Kerberos
+krb5-devel [platform:rpm]
+libffi-devel [platform:rpm]
+
+# SAP específico
+libaio [platform:rpm]
+libnsl [platform:rpm]
+
+# Rede
+curl
+wget
+rsync
+openssh-clients [platform:rpm]
+
+# Git para collections
+git
+git-lfs [platform:rpm]
+EOF
+
+    # Arquivo execution-environment.yml otimizado
+    cat > execution-environment.yml << 'EOF'
+---
+version: 3
+images:
+  base_image:
+    name: quay.io/ansible/awx-ee:latest
+dependencies:
+  galaxy: requirements.yml
+  python: requirements.txt
+  system: bindep.txt
+additional_build_steps:
+  prepend_base:
+    - RUN dnf clean all && dnf makecache && dnf update -y
+  prepend_galaxy:
+    - RUN git config --global --add safe.directory '*'
+  append_final:
+    - RUN ansible-galaxy collection list
+    - RUN pip list
+    - RUN python -c "import pywinrm; print('pywinrm OK')"
+    - RUN python -c "import requests; print('requests OK')"
+EOF
+}
+
+# ============================
+# FUNÇÃO DE TESTE DO EE
+# ============================
+
+test_execution_environment() {
+    log_info "Testando Execution Environment..."
+    
+    # Testar dependências críticas
+    docker run --rm localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
+        python -c "
+import sys
+try:
+    import pywinrm, requests, kubernetes, yaml
+    import ansible
+    print('✅ Dependências básicas OK')
+except ImportError as e:
+    print(f'❌ Erro nas dependências: {e}')
+    sys.exit(1)
+" 2>/dev/null || log_warning "Erro ao testar dependências"
+    
+    # Testar collections
+    docker run --rm localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
+        ansible-galaxy collection list 2>/dev/null | grep -E "(community.windows|microsoft.ad|community.sap_libs)" || log_warning "Collections não encontradas"
+}
+
+# ============================
 # CRIAÇÃO DO EXECUTION ENVIRONMENT
 # ============================
 
@@ -769,67 +970,29 @@ create_execution_environment() {
     log_info "Preparando Execution Environment personalizado..."
     
     # Criar diretório temporário
-    EE_DIR="/tmp/awx-ee-$$"
+    EE_DIR="/tmp/awx-ee-$(date +%s)"
     mkdir -p "$EE_DIR"
     cd "$EE_DIR"
     
-    # Arquivo requirements.yml para coleções
-    cat > requirements.yml << EOF
-collections:
-  - name: community.windows
-    version: ">=1.12.0"
-  - name: ansible.windows
-    version: ">=1.14.0"
-  - name: microsoft.ad
-    version: ">=1.3.0"
-  - name: community.general
-    version: ">=6.0.0"
-  - name: community.crypto
-    version: ">=2.10.0"
-  - name: kubernetes.core
-    version: ">=2.4.0"
-EOF
-
-    # Arquivo requirements.txt para pacotes Python
-    cat > requirements.txt << EOF
-pywinrm>=0.4.3
-requests>=2.28.0
-kubernetes>=24.2.0
-pyyaml>=6.0
-jinja2>=3.1.0
-cryptography>=3.4.8
-EOF
-
-    # Arquivo execution-environment.yml
-    cat > execution-environment.yml << EOF
----
-version: 3
-images:
-  base_image:
-    name: quay.io/ansible/awx-ee:24.6.1
-dependencies:
-  galaxy: requirements.yml
-  python: requirements.txt
-additional_build_steps:
-  prepend_base:
-    - RUN dnf clean all || yum clean all || true
-    - RUN dnf makecache || yum makecache || true
-    - RUN dnf update -y || yum update -y || true
-  append_final:
-    - RUN ansible-galaxy collection list
-    - RUN pip list
-EOF
-
+    # Criar arquivos de configuração otimizados
+    create_optimized_ee_files
+    
     # Construir e enviar imagem
     log_info "Construindo Execution Environment personalizado..."
     if [ "$VERBOSE" = true ]; then
-        ansible-builder build -t localhost:${REGISTRY_PORT}/awx-custom-ee:latest -f execution-environment.yml --verbosity 2
+        ansible-builder build -t localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest -f execution-environment.yml --verbosity 2
     else
-        ansible-builder build -t localhost:${REGISTRY_PORT}/awx-custom-ee:latest -f execution-environment.yml
+        ansible-builder build -t localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest -f execution-environment.yml
     fi
     
+    # Testar a imagem antes de enviar
+    test_execution_environment
+    
     log_info "Enviando imagem para registry local..."
-    docker push localhost:${REGISTRY_PORT}/awx-custom-ee:latest
+    docker push localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
+    
+    # Verificar disponibilidade no registry
+    curl -s http://localhost:${REGISTRY_PORT}/v2/_catalog 2>/dev/null | grep awx-enterprise-ee || log_warning "Registry verification failed"
     
     # Limpar diretório temporário
     cd /
@@ -928,7 +1091,7 @@ spec:
   admin_email: admin@example.com
   
   # Execution Environment personalizado
-  control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-custom-ee:latest
+  control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
   
   # Configuração de réplicas baseada no perfil
   replicas: ${WEB_REPLICAS}
@@ -1011,8 +1174,14 @@ wait_for_awx() {
         echo ""
     done
     
-    # Verificação final
-    kubectl wait --for=condition=Ready pods --all -n "$AWX_NAMESPACE" --timeout=600s
+    # Verificação final com diagnóstico automático
+    if ! kubectl wait --for=condition=Ready pods --all -n "$AWX_NAMESPACE" --timeout=600s; then
+        log_error "Pods não ficaram prontos. Executando diagnóstico..."
+        diagnose_awx_pods
+        check_cluster_resources
+        check_registry
+        exit 1
+    fi
 }
 
 get_awx_password() {
@@ -1067,6 +1236,7 @@ show_final_info() {
     log_info "   Ver pods: ${CYAN}kubectl get pods -n $AWX_NAMESPACE${NC}"
     log_info "   Ver logs web: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-web${NC}"
     log_info "   Ver logs task: ${CYAN}kubectl logs -n $AWX_NAMESPACE deployment/awx-$PERFIL-task${NC}"
+    log_info "   Diagnosticar problemas: ${CYAN}diagnose_awx_pods${NC}"
     log_info "   Deletar cluster: ${CYAN}kind delete cluster --name $CLUSTER_NAME${NC}"
     echo ""
     

@@ -658,25 +658,13 @@ create_optimized_ee_files() {
 ---
 collections:
   - name: community.windows
-    version: ">=2.2.0"
   - name: ansible.windows
-    version: ">=2.3.0"
   - name: community.general
-    version: ">=8.0.0"
   - name: community.crypto
-    version: ">=2.15.0"
   - name: kubernetes.core
-    version: ">=3.0.0"
   - name: cisco.ios
-    version: ">=5.0.0"
   - name: community.network
-    version: ">=5.0.0"
-  - name: amazon.aws
-    version: ">=7.0.0"
   - name: azure.azcollection
-    version: ">=2.0.0"
-  - name: google.cloud
-    version: ">=1.3.0"
 EOF
 
     cat > requirements.txt << 'EOF'
@@ -700,26 +688,75 @@ EOF
 version: 3
 images:
   base_image:
-    name: quay.io/ansible/awx-ee:latest
+    name: quay.io/centos/centos:stream9
 dependencies:
-  galaxy: requirements.yml
-  python: requirements.txt
-  system: bindep.txt
+  python_interpreter:
+    package_system: python3.11
+    python_path: /usr/bin/python3.11
   ansible_core:
-    package_pip: ansible-core==2.15.6
+    # Require minimum of 2.15 to get ansible-inventory --limit option
+    package_pip: ansible-core>=2.15.0rc2,<2.16
   ansible_runner:
-    package_pip: ansible-runner==2.3.6
+    package_pip: ansible-runner
+  galaxy: |
+    ---
+    collections:
+      - name: awx.awx
+      - name: azure.azcollection
+        version: ">=2.1.0"
+      - name: amazon.aws
+      - name: theforeman.foreman
+      - name: google.cloud
+      - name: openstack.cloud
+      - name: community.vmware
+      - name: ovirt.ovirt
+      - name: kubernetes.core
+      - name: ansible.posix
+      - name: ansible.windows
+      - name: redhatinsights.insights
+      - name: kubevirt.core
+  system: |
+    git-core [platform:rpm]
+    python3.11-devel [platform:rpm compile]
+    libcurl-devel [platform:rpm compile]
+    krb5-devel [platform:rpm compile]
+    krb5-workstation [platform:rpm]
+    subversion [platform:rpm]
+    subversion [platform:dpkg]
+    git-lfs [platform:rpm]
+    sshpass [platform:rpm]
+    rsync [platform:rpm]
+    epel-release [platform:rpm]
+    unzip [platform:rpm]
+    podman-remote [platform:rpm]
+    cmake [platform:rpm compile]
+    gcc [platform:rpm compile]
+    gcc-c++ [platform:rpm compile]
+    make [platform:rpm compile]
+    openssl-devel [platform:rpm compile]
+  python: |
+    git+https://github.com/ansible/ansible-sign
+    ncclient
+    paramiko
+    pykerberos
+    pyOpenSSL
+    pypsrp[kerberos,credssp]
+    pywinrm[kerberos,credssp]
+    toml
+    pexpect>=4.5
+    python-daemon
+    pyyaml
+    six
+    receptorctl
 additional_build_steps:
-  prepend_base:
-    - RUN dnf clean all && dnf makecache && dnf update -y
-  prepend_galaxy:
-    - RUN git config --global --add safe.directory '*'
+  append_base:
+    - RUN $PYCMD -m pip install -U pip
   append_final:
-    - RUN python -m pip install --upgrade pip
-    - RUN ansible-galaxy collection list
-    - RUN pip list
-    - RUN python -c "import ansible; print(f'Ansible {ansible.__version__} OK')"
-    - RUN python -c "import ansible_runner; print(f'Ansible Runner {ansible_runner.__version__} OK')"
+    - COPY --from=quay.io/ansible/receptor:devel /usr/bin/receptor /usr/bin/receptor
+    - RUN mkdir -p /var/run/receptor
+    - RUN git lfs install --system
+    # SymLink `python` -> `python3.11`
+    - RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311
 EOF
 }
 

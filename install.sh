@@ -1119,14 +1119,14 @@ calculate_awx_resources() {
     local available_cores=$((available_cpu / 1000))
     
     # Cálculos dinâmicos baseados em porcentagens dos recursos disponíveis
-    local web_cpu_req="$((available_cpu * 15 / 100))m"    # 5% do CPU disponível
-    local web_cpu_lim="$((available_cpu * 30 / 100))m"   # 30% do CPU disponível
-    local web_mem_req="$((available_mem * 15 / 100))Mi"   # 5% da memória disponível
-    local web_mem_lim="$((available_mem * 25 / 100))Mi"  # 25% da memória disponível
+    local web_cpu_req="$((available_cpu * 15 / 100))m"    # 15% do CPU disponível
+    local web_cpu_lim="$((available_cpu * 50 / 100))m"   # 50% do CPU disponível
+    local web_mem_req="$((available_mem * 15 / 100))Mi"   # 15% da memória disponível
+    local web_mem_lim="$((available_mem * 35 / 100))Mi"  # 25% da memória disponível
     
-    local task_cpu_req="$((available_cpu * 20 / 100))m"   # 10% do CPU disponível
+    local task_cpu_req="$((available_cpu * 20 / 100))m"   # 20% do CPU disponível
     local task_cpu_lim="$((available_cpu * 60 / 100))m"   # 60% do CPU disponível
-    local task_mem_req="$((available_mem * 20 / 100))Mi"  # 10% da memória disponível
+    local task_mem_req="$((available_mem * 20 / 100))Mi"  # 20% da memória disponível
     local task_mem_lim="$((available_mem * 50 / 100))Mi"  # 50% da memória disponível
     
     # Ajustar para valores mínimos operacionais

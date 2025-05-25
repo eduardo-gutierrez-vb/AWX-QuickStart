@@ -861,6 +861,7 @@ pykerberos>=1.2.4
 requests-kerberos>=0.14.0
 requests-ntlm>=1.2.0
 
+
 # SAP
 pyrfc>=3.3
 pyhdb>=0.3.4
@@ -875,6 +876,8 @@ azure-identity>=1.15.0
 google-cloud-compute>=1.15.0
 
 # Core
+ansible-core==2.15.6
+ansible-runner==2.3.6
 cryptography>=41.0.0
 requests>=2.31.0
 urllib3>=2.0.0
@@ -919,16 +922,21 @@ dependencies:
   galaxy: requirements.yml
   python: requirements.txt
   system: bindep.txt
+  ansible_core:
+    package_pip: ansible-core==2.15.6  # Versão compatível com AWX 24.6.1
+  ansible_runner:
+    package_pip: ansible-runner==2.3.6  # Versão validada
 additional_build_steps:
   prepend_base:
     - RUN dnf clean all && dnf makecache && dnf update -y
   prepend_galaxy:
     - RUN git config --global --add safe.directory '*'
   append_final:
+    - RUN python -m pip install --upgrade pip
     - RUN ansible-galaxy collection list
     - RUN pip list
-    - RUN python -c "import pywinrm; print('pywinrm OK')"
-    - RUN python -c "import requests; print('requests OK')"
+    - RUN python -c "import ansible; print(f'Ansible {ansible.__version__} OK')"
+    - RUN python -c "import ansible_runner; print(f'Ansible Runner {ansible_runner.__version__} OK')"
 EOF
 }
 

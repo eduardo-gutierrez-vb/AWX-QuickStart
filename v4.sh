@@ -734,24 +734,6 @@ additional_build_steps:
 EOF
 }
 
-test_execution_environment() {
-    log_info "Testando Execution Environment..."
-    
-    docker run --rm localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
-        python -c "
-import sys
-try:
-    import requests, kubernetes, yaml
-    import ansible
-    print('✅ Dependências básicas OK')
-except ImportError as e:
-    print(f'❌ Erro nas dependências: {e}')
-    sys.exit(1)
-" 2>/dev/null || log_warning "Erro ao testar dependências"
-    
-    docker run --rm localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
-        ansible-galaxy collection list 2>/dev/null | grep -E "(community.windows|community.general)" || log_warning "Collections não encontradas"
-}
 
 create_execution_environment() {
     log_header "CRIAÇÃO DO EXECUTION ENVIRONMENT"

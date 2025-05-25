@@ -1433,7 +1433,7 @@ if [ "$INSTALL_DEPS_ONLY" = true ]; then
     log_info "Execute o script novamente sem a opção -d para instalar o AWX"
     exit 0
 fi
-
+validate_environment
 # Continuar com a instalação completa
 create_kind_cluster
 

@@ -43,7 +43,6 @@ REVERSE='\033[7m'
 
 # Banner principal com ASCII art
 show_banner() {
-    clear
     echo -e "${BRIGHT_CYAN}"
     cat << 'EOF'
     ╔══════════════════════════════════════════════════════════════╗
@@ -61,10 +60,34 @@ show_banner() {
 EOF
     echo -e "${NC}"
     echo -e "${BRIGHT_YELLOW}                    Desenvolvido por: ${BRIGHT_GREEN}Eduardo Gutierrez${NC}"
-    echo -e "${GRAY}                      Versão 2.0 - ${NC}"
+    echo -e "${GRAY}                      Versão 2.0 - Interface Moderna${NC}"
     echo ""
 }
 
+# ============================
+# AJUSTE NA ANIMAÇÃO DE CARREGAMENTO
+# ============================
+
+loading_animation() {
+    local text="$1"
+    local duration="${2:-3}"
+    local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    local end_time=$((SECONDS + duration))
+    
+    # Manter cursor visível
+    tput cnorm 
+    
+    while [ $SECONDS -lt $end_time ]; do
+        for frame in "${frames[@]}"; do
+            echo -ne "\r${BRIGHT_BLUE}${frame}${NC} ${text}"
+            sleep 0.1
+        done
+    done
+    echo -ne "\r${GREEN}✓${NC} ${text}\n"
+    
+    # Restaurar estado do cursor
+    tput civis
+}
 # Animação de carregamento elegante
 loading_animation() {
     local text="$1"
@@ -166,7 +189,7 @@ elegant_confirm() {
 
 # Menu principal elegante
 show_main_menu() {
-    clear
+    # Remover clear desnecessário
     show_banner
     
     echo -e "${BRIGHT_WHITE}╔══════════════════════════════════════════════════════════════╗${NC}"

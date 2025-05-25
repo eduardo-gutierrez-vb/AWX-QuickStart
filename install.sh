@@ -190,6 +190,7 @@ check_port_availability() {
     if [ -n "$pid" ]; then
         log_error "Conflito de porta detectado:"
         lsof -i :$port
+        validate_environment
         log_info "Execute para liberar: kill -9 $pid"
         exit 1
     fi

@@ -1067,20 +1067,18 @@ create_execution_environment() {
     # Configurar timeout maior e retry melhorado
     local max_retries=3
     local retry_count=0
-    local build_timeout=1800  # 30 minutos
+    local build_timeout=600  # 10 minutos
     
-    log_warning "Construindo EE - processo pode levar até 30 minutos..."
+    log_warning "Construindo EE - processo pode levar até 10 minutos..."
     
     while [ $retry_count -lt $max_retries ]; do
         log_info "Tentativa de build $(($retry_count + 1))/$max_retries"
         
-        # Build com timeout
+        # Comando corrigido removendo argumento não suportado
         if timeout $build_timeout ansible-builder build \
             -t localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest \
             -f execution-environment.yml \
-            $build_args \
-            --build-outputs-dir /tmp/build-outputs \
-            2>&1 | tee /tmp/build-log-$(date +%s).txt; then
+            $build_args 2>&1 | tee /tmp/build-log-$(date +%s).txt; then
             
             log_success "Build do EE concluído com sucesso!"
             break

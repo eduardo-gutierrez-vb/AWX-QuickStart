@@ -14,7 +14,7 @@ WHITE='\033[1;37m'
 NC='\033[0m'
 
 # Diretório base do script
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="https://raw.githubusercontent.com/eduardo-gutierrez-vb/AWX-QuickStart/refs/heads/main"
 LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
 
 # Importar módulos

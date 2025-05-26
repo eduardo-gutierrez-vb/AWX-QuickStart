@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m'
 
-rm AWX-QuickStart\*
+rm -r AWX-QuickStart*
 
 # Verificar e clonar repositório se necessário
 REPO_DIR="AWX-QuickStart"

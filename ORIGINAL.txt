@@ -814,6 +814,7 @@ additional_build_steps:
     - RUN mkdir -p /var/run/receptor /tmp/receptor
     - COPY --from=quay.io/ansible/receptor:v1.5.5 /usr/bin/receptor /usr/bin/receptor
     - RUN chmod +x /usr/bin/receptor
+    
 EOF
 }
 

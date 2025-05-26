@@ -3,16 +3,13 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/logger.sh"
 
-# Validações numéricas
-is_number() {
-    [[ $1 =~ ^[0-9]+$ ]]
-}
+is_number() { [[ "$1" =~ ^[0-9]+$ ]]; }
 
 validate_port() {
     local port="$1"
     local context="${2:-porta}"
     
-    if ! is_number "$port" || [[ $port -lt 1 || $port -gt 65535 ]]; then
+    if ! is_number "$port" || [[ "$port" -lt 1 ]] || [[ "$port" -gt 65535 ]]; then
         log_error "Valor inválido para $context: $port. Use um valor entre 1 e 65535."
         return 1
     fi
@@ -25,7 +22,7 @@ validate_cpu() {
     local cpu="$1"
     local context="${2:-CPU}"
     
-    if ! is_number "$cpu" || [[ $cpu -lt 1 || $cpu -gt 64 ]]; then
+    if ! is_number "$cpu" || [[ "$cpu" -lt 1 ]] || [[ "$cpu" -gt 64 ]]; then
         log_error "Valor inválido para $context: $cpu. Use um valor entre 1 e 64."
         return 1
     fi
@@ -38,7 +35,7 @@ validate_memory() {
     local memory="$1"
     local context="${2:-memória}"
     
-    if ! is_number "$memory" || [[ $memory -lt 512 || $memory -gt 131072 ]]; then
+    if ! is_number "$memory" || [[ "$memory" -lt 512 ]] || [[ "$memory" -gt 131072 ]]; then
         log_error "Valor inválido para $context: $memory MB. Use um valor entre 512 MB e 131072 MB (128 GB)."
         return 1
     fi
@@ -47,38 +44,30 @@ validate_memory() {
     return 0
 }
 
-# Validação de dependências de sistema
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
+command_exists() { command -v "$1" &> /dev/null; }
+user_in_docker_group() { groups | grep -q docker; }
 
-user_in_docker_group() {
-    groups | grep -q docker
-}
-
-# Validação de disponibilidade de porta
 check_port_availability() {
     local port="$1"
     local service_name="${2:-serviço}"
     
     log_debug "Verificando disponibilidade da porta $port para $service_name"
     
-    # Verificar processos usando a porta
-    local pid=$(lsof -t -i :"$port" 2>/dev/null || true)
+    local pid=$(lsof -t -i ":$port" 2>/dev/null || true)
     if [[ -n "$pid" ]]; then
         log_error "Conflito de porta detectado para $service_name (porta $port):"
-        lsof -i :"$port"
+        lsof -i ":$port"
         log_info "Execute para liberar: kill -9 $pid"
         return 1
     fi
     
-    # Verificar containers Docker usando a porta
-    local container=$(docker ps --format '{{.Names}}' 2>/dev/null | while read name; do
+    local container=""
+    while read name; do
         if docker port "$name" 2>/dev/null | grep -q ":$port->"; then
             echo "$name"
             break
         fi
-    done)
+    done < <(docker ps --format '{{.Names}}' 2>/dev/null)
     
     if [[ -n "$container" ]]; then
         log_error "Container Docker '$container' está usando a porta $port para $service_name:"
@@ -91,7 +80,6 @@ check_port_availability() {
     return 0
 }
 
-# Validação de ambiente Docker
 validate_docker_environment() {
     log_debug "Validando ambiente Docker"
     
@@ -100,7 +88,7 @@ validate_docker_environment() {
         return 1
     fi
     
-    if ! docker info >/dev/null 2>&1; then
+    if ! docker info &>/dev/null; then
         log_error "Docker não está acessível. Verifique se o serviço está rodando."
         if ! user_in_docker_group; then
             log_error "Usuário não está no grupo docker. Execute: sudo usermod -aG docker \$USER"
@@ -113,7 +101,6 @@ validate_docker_environment() {
     return 0
 }
 
-# Validação de ambiente Kubernetes
 validate_kubernetes_environment() {
     log_debug "Validando ambiente Kubernetes"
     
@@ -131,7 +118,6 @@ validate_kubernetes_environment() {
     return 0
 }
 
-# Validação de sistema operacional
 validate_operating_system() {
     log_debug "Validando sistema operacional"
     
@@ -149,7 +135,6 @@ validate_operating_system() {
     return 0
 }
 
-# Validação de espaço em disco
 validate_disk_space() {
     local required_space_gb="${1:-10}"  # 10GB por padrão
     local mount_point="${2:-/}"
@@ -159,7 +144,7 @@ validate_disk_space() {
     local available_space_kb=$(df "$mount_point" | tail -1 | awk '{print $4}')
     local available_space_gb=$((available_space_kb / 1024 / 1024))
     
-    if [[ $available_space_gb -lt $required_space_gb ]]; then
+    if [[ "$available_space_gb" -lt "$required_space_gb" ]]; then
         log_error "Espaço em disco insuficiente em $mount_point"
         log_error "Necessário: ${required_space_gb}GB, Disponível: ${available_space_gb}GB"
         return 1
@@ -169,30 +154,26 @@ validate_disk_space() {
     return 0
 }
 
-# Validação completa de pré-requisitos
 validate_prerequisites() {
     log_header "VALIDAÇÃO DE PRÉ-REQUISITOS"
+    local validation_failed="false"
     
-    local validation_failed=false
-    
-    # Validações individuais
     if ! validate_operating_system; then
-        validation_failed=true
+        validation_failed="true"
     fi
     
     if ! validate_disk_space 10; then
-        validation_failed=true
+        validation_failed="true"
     fi
     
     if ! validate_docker_environment; then
-        validation_failed=true
+        validation_failed="true"
     fi
     
     if ! validate_kubernetes_environment; then
-        validation_failed=true
+        validation_failed="true"
     fi
     
-    # Verificar se alguma validação falhou
     if [[ "$validation_failed" == "true" ]]; then
         log_error "Falha na validação de pré-requisitos. Corrija os problemas acima antes de continuar."
         return 1
@@ -202,7 +183,6 @@ validate_prerequisites() {
     return 0
 }
 
-# Validação de parâmetros de entrada
 validate_input_parameters() {
     local cluster_name="$1"
     local host_port="$2"
@@ -211,24 +191,20 @@ validate_input_parameters() {
     
     log_debug "Validando parâmetros de entrada"
     
-    # Validar nome do cluster
-    if [[ -n "$cluster_name" && ! "$cluster_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$ ]]; then
+    if [[ -n "$cluster_name" ]] && [[ ! "$cluster_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$ ]]; then
         log_error "Nome do cluster inválido: $cluster_name"
         log_error "Use apenas letras, números e hífens. Deve começar e terminar com alfanumérico."
         return 1
     fi
     
-    # Validar porta
     if [[ -n "$host_port" ]] && ! validate_port "$host_port" "porta do host"; then
         return 1
     fi
     
-    # Validar CPU forçada
     if [[ -n "$force_cpu" ]] && ! validate_cpu "$force_cpu" "CPU forçada"; then
         return 1
     fi
     
-    # Validar memória forçada
     if [[ -n "$force_memory" ]] && ! validate_memory "$force_memory" "memória forçada"; then
         return 1
     fi

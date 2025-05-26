@@ -773,12 +773,6 @@ additional_build_steps:
     - RUN mkdir -p /var/run/receptor /tmp/receptor
     - COPY --from=quay.io/ansible/receptor:v1.5.5 /usr/bin/receptor /usr/bin/receptor
     - RUN chmod +x /usr/bin/receptor
-
-build_arg_defaults:
-  ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v --timeout 60"
-options:
-  package_manager_path: /usr/bin/dnf
-
 EOF
 }
 

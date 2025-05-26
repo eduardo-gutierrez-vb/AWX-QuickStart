@@ -669,7 +669,6 @@ dependencies:
 
   galaxy:
     collections:
-
       # Coleções de rede e conectividade
       - name: ansible.netcommon
       - name: ansible.utils
@@ -698,9 +697,13 @@ dependencies:
       # Coleções utilitárias
       - name: community.general
       - name: community.dns
+      - name: community.sap_libs
       - name: ansible.eda
 
   python:
+    # Dependências SAP específicas
+    - pyrfc==3.3.1
+    
     # Dependências de rede e conectividade
     - dnspython
     - urllib3
@@ -742,6 +745,9 @@ dependencies:
     # Dependências adicionais para AWX
     - psutil
     - python-dateutil
+    
+    # Dependências para compilação Python C extensions
+    - Cython
 
   system:
     - git
@@ -750,25 +756,65 @@ dependencies:
     - rsync
     - iputils
     - bind-utils
+    # Ferramentas de desenvolvimento para compilação
+    - gcc
+    - gcc-c++
+    - make
+    - python3-devel
+    - libffi-devel
+    # Ferramentas SAP específicas (quando disponíveis)
+    - unzip
 
 additional_build_steps:
   prepend_base:
+    # Atualização do sistema e instalação de repositórios
     - RUN dnf update -y && dnf install -y epel-release
+    
+    # Instalação de ferramentas de desenvolvimento
     - RUN dnf install -y python3 python3-pip python3-devel gcc gcc-c++ make
     - RUN dnf install -y krb5-devel krb5-libs krb5-workstation
     - RUN dnf install -y libxml2-devel libxslt-devel libffi-devel
     - RUN dnf install -y openssh-clients sshpass git rsync iputils bind-utils
-    - RUN dnf install -y sudo which procps-ng
+    - RUN dnf install -y sudo which procps-ng unzip
+    
+    # Preparação para SAP NW RFC SDK
+    - RUN mkdir -p /usr/local/sap/nwrfcsdk
+    - RUN mkdir -p /etc/ld.so.conf.d
+    
+    # Configuração de environment variables para SAP
+    - ENV SAPNWRFC_HOME=/usr/local/sap/nwrfcsdk
+    - ENV LD_LIBRARY_PATH=/usr/local/sap/nwrfcsdk/lib:$LD_LIBRARY_PATH
+    - ENV PATH=/usr/local/sap/nwrfcsdk/bin:$PATH
 
   append_base:
+    # Atualização do pip e ferramentas Python
     - RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel
+    
+    # Instalação específica do PyRFC com versão fixa
+    - RUN python3 -m pip install --no-cache-dir pyrfc==3.3.1 || echo "PyRFC installation failed - SAP NW RFC SDK may be required"
+    
+    # Instalação do Azure CLI
     - RUN python3 -m pip install --no-cache-dir azure-cli
+    
+    # Configuração de diretórios Ansible
     - RUN mkdir -p /opt/ansible/{collections,playbooks,inventories,roles}
+    
+    # Configuração do ldconfig para SAP libraries
+    - RUN echo "/usr/local/sap/nwrfcsdk/lib" > /etc/ld.so.conf.d/nwrfcsdk.conf
+    - RUN ldconfig
+    
+    # Limpeza do sistema
     - RUN dnf clean all && rm -rf /var/cache/dnf/*
+    
+    # Verificação das instalações
     - RUN python3 -c "import ansible; print('Ansible version:', ansible.__version__)"
+    - RUN python3 -c "try: import pyrfc; print('PyRFC successfully imported'); except ImportError as e: print('PyRFC import failed:', e)"
+    
+    # Configuração do Receptor
     - RUN mkdir -p /var/run/receptor /tmp/receptor
     - COPY --from=quay.io/ansible/receptor:v1.5.5 /usr/bin/receptor /usr/bin/receptor
     - RUN chmod +x /usr/bin/receptor
+    
 EOF
 }
 

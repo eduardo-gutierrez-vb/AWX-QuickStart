@@ -884,7 +884,7 @@ spec:
   admin_user: admin
   admin_email: snoc@grupvob.com.br
   
-  #control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
+  control_plane_ee_image: quay.io/ansible/awx-ee:latest
   
   replicas: ${WEB_REPLICAS}
   web_replicas: ${WEB_REPLICAS}

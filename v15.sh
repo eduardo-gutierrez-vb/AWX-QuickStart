@@ -878,16 +878,16 @@ spec:
       cpu: ${AWX_TASK_CPU_LIM}
       memory: ${AWX_TASK_MEM_LIM}
   
-  projects_persistence: true
-  projects_storage_size: 8Gi
-  projects_storage_access_mode: ReadWriteOnce
-  
   postgres_configuration_secret: awx-postgres-configuration
   postgres_storage_requirements:
     requests:
       storage: 8Gi
     limits:
       storage: 8Gi
+
+  projects_persistence: true
+  projects_storage_size: 8Gi
+  projects_storage_access_mode: ReadWriteOnce
 EOF
 
     kubectl apply -f /tmp/awx-instance.yaml -n "$AWX_NAMESPACE"

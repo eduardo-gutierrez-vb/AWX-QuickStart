@@ -3,7 +3,7 @@
 
 git clone https://github.com/eduardo-gutierrez-vb/AWX-QuickStart.git
 
-cd AWX-QuickStart
+cd AWX-QuickStart/
 
 set -e
 

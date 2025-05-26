@@ -730,8 +730,9 @@ additional_build_steps:
   append_base:
     - RUN python3 -m pip install --upgrade pip setuptools wheel
     - RUN python3 -m pip install azure-cli
-    - COPY --from=quay.io/project-receptor/receptor:latest /usr/bin/receptor /usr/bin/receptor
+    - COPY --from=quay.io/project-receptor/receptor:v1.4.8 /usr/bin/receptor /usr/bin/receptor
     - RUN mkdir -p /var/run/receptor
+    - RUN chmod +x /usr/bin/receptor
     - RUN mkdir -p /opt/ansible/collections
     - RUN mkdir -p /opt/ansible/playbooks
     - RUN mkdir -p /opt/ansible/inventories

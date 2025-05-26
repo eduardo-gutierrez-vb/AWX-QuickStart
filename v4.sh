@@ -718,14 +718,6 @@ dependencies:
       - name: community.dns
       - name: community.sap_install
 
-  requirements: |
-    roles:
-      - src: geerlingguy.nodejs
-        name: geerlingguy.nodejs
-      - src: https://github.com/HPENetworking/hpe-cw7-ansible.git
-        name: hpe_cw7
-        version: main
-
   python: |
     dnspython>=2.2.0
     urllib3>=1.26.0

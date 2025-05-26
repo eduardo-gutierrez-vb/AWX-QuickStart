@@ -200,10 +200,10 @@ calculate_awx_resources() {
     local web_mem_req="${available_memory}*30/100Mi"
     local web_mem_lim="${available_memory}*50/100Mi"
     
-    local task_cpu_req="${available_cpu}*15/100m"
-    local task_cpu_lim="${available_cpu}*60/100m"
-    local task_mem_req="${available_memory}*30/100Mi"
-    local task_mem_lim="${available_memory}*50/100Mi"
+    local task_cpu_req="$((available_memory * 15 / 100))m"
+    local task_cpu_lim="$((available_memory * 60 / 100))m"
+    local task_mem_req="$((available_memory * 30 / 100))Mi"
+    local task_mem_lim="$((available_memory * 50 / 100))Mi"
     
     # Garantir valores mínimos
     [[ "${web_cpu_req%m}" -lt 1000 ]] && web_cpu_req="1000m"

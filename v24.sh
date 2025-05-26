@@ -669,10 +669,7 @@ dependencies:
 
   galaxy:
     collections:
-      # Coleções essenciais do AWX
-      - name: awx.awx
-      - name: ansible.controller
-      
+
       # Coleções de rede e conectividade
       - name: ansible.netcommon
       - name: ansible.utils

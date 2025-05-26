@@ -8,7 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../utils/common.sh"
 
 # Configurações do módulo
 readonly EE_MODULE_NAME="ee_builder"
-readonly TEMPLATES_DIR="${PROJECT_ROOT}/config/templates"
+source "$(dirname "${BASH_SOURCE[0]}")/../config/templates"
 readonly EE_TEMP_DIR="/tmp/awx-ee-$(date +%s)"
 
 # Variáveis de configuração

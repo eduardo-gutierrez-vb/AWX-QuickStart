@@ -15,7 +15,7 @@ NC='\033[0m'
 
 # Diretório base do script
 SCRIPT_DIR="https://raw.githubusercontent.com/eduardo-gutierrez-vb/AWX-QuickStart/refs/heads/main"
-LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
+LIB_DIR="https://raw.githubusercontent.com/eduardo-gutierrez-vb/AWX-QuickStart/refs/heads/main/lib"
 
 # Importar módulos
 source "$LIB_DIR/core/logger.sh"

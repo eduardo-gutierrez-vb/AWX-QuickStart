@@ -712,7 +712,7 @@ dependencies:
     # Dependências Windows e autenticação
     - pykerberos
     - pywinrm
-    - "pypsrp[kerberos]
+    - "pypsrp[kerberos]"
     
     # Dependências Azure
     - azure-cli-core

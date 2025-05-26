@@ -653,35 +653,6 @@ EOF
 
 create_optimized_ee_files() {
     log_info "Criando arquivos de configuração EE otimizados..."
-    
-    cat > requirements.yml << 'EOF'
----
-collections:
-  - name: community.windows
-  - name: ansible.windows
-  - name: community.general
-  - name: community.crypto
-  - name: kubernetes.core
-  - name: cisco.ios
-  - name: community.network
-  - name: azure.azcollection
-EOF
-
-    cat > requirements.txt << 'EOF'
-git+https://github.com/ansible/ansible-builder.git@devel#egg=ansible-builder
-EOF
-
-    cat > bindep.txt << 'EOF'
-gcc [platform:rpm compile]
-python3-devel [platform:rpm]
-openssl-devel [platform:rpm]
-curl
-wget
-rsync
-openssh-clients [platform:rpm]
-git
-git-lfs [platform:rpm]
-EOF
 
     cat > execution-environment.yml << 'EOF'
 ---
@@ -769,7 +740,7 @@ additional_build_steps:
 
 build_arg_defaults:
   ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v"
-  CONTAINERD_ENABLE_DEPRECATED_PULL_SCHEMA_1_IMAGE: 1
+  CONTAINERD_ENABLE_DEPRECATED_PULL_SCHEMA_1_IMAGE=1
 EOF
 }
 

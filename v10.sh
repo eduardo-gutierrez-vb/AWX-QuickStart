@@ -663,7 +663,7 @@ images:
 
 dependencies:
   ansible_core:
-    package_pip: ansible-core>=2.16.0
+    package_pip: ansible-core>=2.15.8
   ansible_runner:
     package_pip: ansible-runner
 

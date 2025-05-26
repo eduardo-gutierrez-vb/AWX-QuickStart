@@ -806,19 +806,23 @@ calculate_awx_resources() {
     
     local web_cpu_req="$((available_cpu * 15 / 100))m"
     local web_cpu_lim="$((available_cpu * 30 / 100))m"
-    local web_mem_req="$((available_mem * 15 / 100))Mi"
+    local web_mem_req="$((available_mem * 30 / 100))Mi"
     local web_mem_lim="$((available_mem * 25 / 100))Mi"
     
-    local task_cpu_req="$((available_cpu * 10 / 100))m"
+    local task_cpu_req="$((available_cpu * 15 / 100))m"
     local task_cpu_lim="$((available_cpu * 60 / 100))m"
-    local task_mem_req="$((available_mem * 10 / 100))Mi"
+    local task_mem_req="$((available_mem * 30 / 100))Mi"
     local task_mem_lim="$((available_mem * 50 / 100))Mi"
     
     [ "${web_cpu_req%m}" -lt 512 ] && web_cpu_req="512m"
     [ "${web_mem_req%Mi}" -lt 1024 ] && web_mem_req="1024Mi"
     [ "${task_cpu_req%m}" -lt 512 ] && task_cpu_req="512m"
     [ "${task_mem_req%Mi}" -lt 1024 ] && task_mem_req="1024Mi"
-    
+    [ "${web_cpu_lim%m}" -lt 512 ] && web_cpu_lim="512m"
+    [ "${web_mem_lim%Mi}" -lt 1024 ] && web_mem_lim="1024Mi"
+    [ "${task_cpu_lim%m}" -lt 512 ] && task_cpu_lim="512m"
+    [ "${task_mem_lim%Mi}" -lt 1024 ] && task_mem_lim="1024Mi"    
+
     export AWX_WEB_CPU_REQ="$web_cpu_req"
     export AWX_WEB_CPU_LIM="$web_cpu_lim"
     export AWX_WEB_MEM_REQ="$web_mem_req"
@@ -850,7 +854,7 @@ spec:
   service_type: nodeport
   nodeport_port: ${HOST_PORT}
   admin_user: admin
-  admin_email: admin@example.com
+  admin_email: snoc@grupvob.com.br
   
   control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
   

@@ -769,6 +769,7 @@ additional_build_steps:
 
 build_arg_defaults:
   ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v"
+  CONTAINERD_ENABLE_DEPRECATED_PULL_SCHEMA_1_IMAGE: 1
 EOF
 }
 

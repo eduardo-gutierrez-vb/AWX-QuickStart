@@ -669,77 +669,117 @@ dependencies:
 
   galaxy:
     collections:
-      - ansible.netcommon
-      - ansible.utils
-      - ansible.windows
-      - ansible.posix
-      - ansible.eda
-      - microsoft.ad
-      - community.windows
-      - azure.azcollection
-      - community.zabbix
-      - grafana.grafana
-      - community.crypto
-      - cisco.ios
-      - fortinet.fortios
-      - community.network
-      - maxhoesel.proxmox
-      - community.general
-      - community.docker
-      - community.dns
-      - community.sap_install
+      # Coleções essenciais do AWX
+      - name: awx.awx
+      - name: ansible.controller
+      
+      # Coleções de rede e conectividade
+      - name: ansible.netcommon
+      - name: ansible.utils
+      - name: community.network
+      - name: cisco.ios
+      - name: fortinet.fortios
+      
+      # Coleções de sistema operacional
+      - name: ansible.windows
+      - name: ansible.posix
+      - name: community.windows
+      - name: microsoft.ad
+      
+      # Coleções de cloud e virtualização
+      - name: azure.azcollection
+      - name: maxhoesel.proxmox
+      - name: community.docker
+      
+      # Coleções de monitoramento e observabilidade
+      - name: community.zabbix
+      - name: grafana.grafana
+      
+      # Coleções de segurança e criptografia
+      - name: community.crypto
+      
+      # Coleções utilitárias
+      - name: community.general
+      - name: community.dns
+      - name: community.sap_install
+      - name: ansible.eda
 
   python:
-    - dnspython
-    - urllib3
-    - pykerberos
-    - pywinrm
-    - pypsrp[kerberos]
-    - azure-cli-core
-    - azure-common
-    - azure-mgmt-compute
-    - azure-mgmt-network
-    - azure-mgmt-resource
-    - azure-mgmt-storage
-    - azure-identity
-    - azure-mgmt-authorization
-    - pyVim
-    - PyVmomi
-    - proxmoxer
-    - requests
-    - xmltodict
-    - ncclient
-    - lxml
-    - zabbix-api
-    - grafana-api
-    - cryptography
-    - jmespath
-    - netaddr
-    - awxkit
+    # Dependências de rede e conectividade
+    - dnspython>=2.0.0
+    - urllib3>=1.26.0
+    - ncclient>=0.6.0
+    - netaddr>=0.8.0
+    - lxml>=4.6.0
+    
+    # Dependências Windows e autenticação
+    - pykerberos>=1.2.0
+    - pywinrm>=0.4.0
+    - "pypsrp[kerberos]>=0.8.0"
+    
+    # Dependências Azure
+    - azure-cli-core>=2.0.0
+    - azure-common>=1.1.0
+    - azure-mgmt-compute>=20.0.0
+    - azure-mgmt-network>=19.0.0
+    - azure-mgmt-resource>=20.0.0
+    - azure-mgmt-storage>=19.0.0
+    - azure-identity>=1.8.0
+    - azure-mgmt-authorization>=2.0.0
+    
+    # Dependências de virtualização
+    - pyVim>=7.0.0
+    - PyVmomi>=7.0.0
+    - proxmoxer>=1.3.0
+    
+    # Dependências de monitoramento
+    - zabbix-api>=0.5.0
+    - grafana-api>=1.0.0
+    
+    # Dependências gerais
+    - requests>=2.28.0
+    - xmltodict>=0.12.0
+    - cryptography>=3.4.0
+    - jmespath>=0.10.0
+    - awxkit>=21.0.0
+    
+    # Dependências adicionais para AWX
+    - psutil>=5.8.0
+    - python-dateutil>=2.8.0
+
+  system:
+    - git
+    - openssh-clients
+    - sshpass
+    - rsync
+    - iputils
+    - bind-utils
 
 additional_build_steps:
   prepend_base:
-    - RUN dnf update -y
-    - RUN dnf install -y epel-release
-    - RUN dnf install -y python3 python3-pip python3-devel
+    - RUN dnf update -y && dnf install -y epel-release
+    - RUN dnf install -y python3 python3-pip python3-devel gcc gcc-c++ make
     - RUN dnf install -y krb5-devel krb5-libs krb5-workstation
-    - RUN dnf install -y gcc gcc-c++ make
-    - RUN dnf install -y openssh-clients sshpass
-    - RUN dnf install -y libxml2-devel libxslt-devel
+    - RUN dnf install -y libxml2-devel libxslt-devel libffi-devel
+    - RUN dnf install -y openssh-clients sshpass git rsync iputils bind-utils
+    - RUN dnf install -y sudo which procps-ng
 
   append_base:
-    - RUN python3 -m pip install --upgrade pip setuptools wheel
-    - RUN python3 -m pip install azure-cli
-    - RUN mkdir -p /opt/ansible/collections
-    - RUN mkdir -p /opt/ansible/playbooks
-    - RUN mkdir -p /opt/ansible/inventories
-    - RUN dnf clean all
+    - RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel
+    - RUN python3 -m pip install --no-cache-dir azure-cli
+    - RUN mkdir -p /opt/ansible/{collections,playbooks,inventories,roles}
+    - RUN mkdir -p /var/run/receptor /tmp/receptor
     - COPY --from=quay.io/ansible/receptor:v1.5.5 /usr/bin/receptor /usr/bin/receptor
-    - RUN mkdir -p /var/run/receptor
+    - RUN chmod +x /usr/bin/receptor
+    - RUN dnf clean all && rm -rf /var/cache/dnf/*
+    - RUN python3 -c "import ansible; print('Ansible version:', ansible.__version__)"
 
 build_arg_defaults:
-  ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v"
+  ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v --timeout 60"
+  ANSIBLE_GALAXY_CLI_ROLE_OPTS: "-v"
 
+options:
+  package_manager_path: /usr/bin/dnf
 
 EOF
 }
@@ -853,8 +893,41 @@ metadata:
 spec:
   service_type: nodeport
   nodeport_port: ${HOST_PORT}
+  admin_user: admin
+  admin_email: snoc@grupvob.com.br
   
   control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
+  
+  replicas: ${WEB_REPLICAS}
+  web_replicas: ${WEB_REPLICAS}
+  task_replicas: ${TASK_REPLICAS}
+  
+  web_resource_requirements:
+    requests:
+      cpu: ${AWX_WEB_CPU_REQ}
+      memory: ${AWX_WEB_MEM_REQ}
+    limits:
+      cpu: ${AWX_WEB_CPU_LIM}
+      memory: ${AWX_WEB_MEM_LIM}
+  
+  task_resource_requirements:
+    requests:
+      cpu: ${AWX_TASK_CPU_REQ}
+      memory: ${AWX_TASK_MEM_REQ}
+    limits:
+      cpu: ${AWX_TASK_CPU_LIM}
+      memory: ${AWX_TASK_MEM_LIM}
+  
+  postgres_configuration_secret: awx-postgres-configuration
+  postgres_storage_requirements:
+    requests:
+      storage: 8Gi
+    limits:
+      storage: 8Gi
+
+  projects_persistence: true
+  projects_storage_size: 8Gi
+  projects_storage_access_mode: ReadWriteOnce
 EOF
 
     kubectl apply -f /tmp/awx-instance.yaml -n "$AWX_NAMESPACE"

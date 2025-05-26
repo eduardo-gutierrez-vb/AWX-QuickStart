@@ -226,4 +226,3 @@ calculate_awx_resources() {
     log_success "Web Réplicas: $web_replicas"
     log_success "Task Réplicas: $task_replicas"
     log_success "Web CPU: $web_cpu_req - $web_cpu_lim"
-    log_success

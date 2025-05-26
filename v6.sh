@@ -668,7 +668,6 @@ dependencies:
     package_pip: ansible-runner
 
   galaxy:
-    # Coleções listadas diretamente (formato válido para schema v3)
     collections:
       - ansible.netcommon
       - ansible.utils
@@ -691,7 +690,6 @@ dependencies:
       - community.sap_install
 
   python:
-    # Lista de dependências Python (não use |)
     - dnspython>=2.2.0
     - urllib3>=1.26.0
     - pykerberos>=1.2.1
@@ -732,7 +730,7 @@ additional_build_steps:
   append_base:
     - RUN python3 -m pip install --upgrade pip setuptools wheel
     - RUN python3 -m pip install azure-cli
-    # Corrigido para imagem receptor schema v2 (removido digest SHA)
+    # Linha corrigida - usando imagem schema v2
     - COPY --from=quay.io/project-receptor/receptor:latest /usr/bin/receptor /usr/bin/receptor
     - RUN mkdir -p /var/run/receptor
     - RUN mkdir -p /opt/ansible/collections
@@ -743,6 +741,7 @@ additional_build_steps:
 
 build_arg_defaults:
   ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v"
+
 
 EOF
 }

@@ -10,7 +10,6 @@ dependencies:
     package_pip: ansible-core>=2.14.0
   ansible_runner:
     package_pip: ansible-runner
-  
   galaxy: collections.yml
   python: requirements.txt
   system: bindep.txt
@@ -69,101 +68,3 @@ build_arg_defaults:
   ANSIBLE_CORE_VERSION: ">=2.14.0"
   ANSIBLE_RUNNER_VERSION: ">=2.3.0"
   PYTHON_VERSION: "3.9"
-  
-# Collections configuration file
-collections_file: |
-  collections:
-    # Network and connectivity collections
-    - name: ansible.netcommon
-    - name: ansible.utils
-    - name: community.network
-    - name: cisco.ios
-    - name: fortinet.fortios
-    
-    # Operating system collections
-    - name: ansible.windows
-    - name: ansible.posix
-    - name: community.windows
-    - name: microsoft.ad
-    
-    # Cloud and virtualization collections
-    - name: azure.azcollection
-    - name: maxhoesel.proxmox
-    - name: community.docker
-    
-    # Monitoring and observability collections
-    - name: community.zabbix
-    - name: grafana.grafana
-    
-    # Security and cryptography collections
-    - name: community.crypto
-    
-    # Utility collections
-    - name: community.general
-    - name: community.dns
-    - name: community.saplibs
-    - name: ansible.eda
-
-# Python requirements file
-requirements_file: |
-  # SAP specific dependencies
-  pyrfc==3.3.1
-  
-  # Network and connectivity dependencies
-  dnspython
-  urllib3
-  ncclient
-  netaddr
-  lxml
-  
-  # Windows and authentication dependencies
-  pykerberos
-  pywinrm[kerberos]
-  
-  # Azure dependencies
-  azure-cli-core
-  azure-common
-  azure-mgmt-compute
-  azure-mgmt-network
-  azure-mgmt-resource
-  azure-mgmt-storage
-  azure-identity
-  azure-mgmt-authorization
-  
-  # Virtualization dependencies
-  pyVim
-  PyVmomi
-  proxmoxer
-  
-  # Monitoring dependencies
-  zabbix-api
-  grafana-api
-  
-  # General dependencies
-  requests
-  xmltodict
-  cryptography
-  jmespath
-  awxkit
-  
-  # Additional dependencies for AWX
-  psutil
-  python-dateutil
-
-# System dependencies file
-bindep_file: |
-  # Compilation dependencies
-  gcc [platform:rpm]
-  gcc-c++ [platform:rpm]
-  make [platform:rpm]
-  python3-devel [platform:rpm]
-  libffi-devel [platform:rpm]
-  
-  # Development tools
-  unzip [platform:rpm]
-  git [platform:rpm]
-  openssh-clients [platform:rpm]
-  sshpass [platform:rpm]
-  rsync [platform:rpm]
-  iputils [platform:rpm]
-  bind-utils [platform:rpm]

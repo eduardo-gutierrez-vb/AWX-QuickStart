@@ -1,0 +1,43 @@
+# SAP specific dependencies
+pyrfc==3.3.1
+
+# Network and connectivity dependencies
+dnspython
+urllib3
+ncclient
+netaddr
+lxml
+
+# Windows and authentication dependencies
+pykerberos
+pywinrm[kerberos]
+
+# Azure dependencies
+azure-cli-core
+azure-common
+azure-mgmt-compute
+azure-mgmt-network
+azure-mgmt-resource
+azure-mgmt-storage
+azure-identity
+azure-mgmt-authorization
+
+# Virtualization dependencies
+pyVim
+PyVmomi
+proxmoxer
+
+# Monitoring dependencies
+zabbix-api
+grafana-api
+
+# General dependencies
+requests
+xmltodict
+cryptography
+jmespath
+awxkit
+
+# Additional dependencies for AWX
+psutil
+python-dateutil

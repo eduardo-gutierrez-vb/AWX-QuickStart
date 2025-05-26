@@ -1,0 +1,32 @@
+---
+collections:
+  # Network and connectivity collections
+  - name: ansible.netcommon
+  - name: ansible.utils
+  - name: community.network
+  - name: cisco.ios
+  - name: fortinet.fortios
+  
+  # Operating system collections
+  - name: ansible.windows
+  - name: ansible.posix
+  - name: community.windows
+  - name: microsoft.ad
+  
+  # Cloud and virtualization collections
+  - name: azure.azcollection
+  - name: maxhoesel.proxmox
+  - name: community.docker
+  
+  # Monitoring and observability collections
+  - name: community.zabbix
+  - name: grafana.grafana
+  
+  # Security and cryptography collections
+  - name: community.crypto
+  
+  # Utility collections
+  - name: community.general
+  - name: community.dns
+  - name: community.saplibs
+  - name: ansible.eda

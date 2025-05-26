@@ -1,0 +1,15 @@
+# Compilation dependencies
+gcc [platform:rpm]
+gcc-c++ [platform:rpm]
+make [platform:rpm]
+python3-devel [platform:rpm]
+libffi-devel [platform:rpm]
+
+# Development tools
+unzip [platform:rpm]
+git [platform:rpm]
+openssh-clients [platform:rpm]
+sshpass [platform:rpm]
+rsync [platform:rpm]
+iputils [platform:rpm]
+bind-utils [platform:rpm]

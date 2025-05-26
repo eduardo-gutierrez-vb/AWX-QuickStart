@@ -56,12 +56,6 @@ spec:
   # Additional Configuration
   hostname: awx-${PERFIL}.local
   
-  # Security Context
-  security_context_settings:
-    runAsUser: 1000
-    runAsGroup: 1000
-    fsGroup: 1000
-  
   # Node Selector for Production
   web_node_selector:
     node-role: worker
@@ -79,38 +73,3 @@ spec:
       operator: "Equal"
       value: "worker"
       effect: "NoSchedule"
-  
-  # Anti-affinity for high availability
-  web_affinity:
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-            - key: app.kubernetes.io/name
-              operator: In
-              values:
-              - awx
-            - key: app.kubernetes.io/component
-              operator: In
-              values:
-              - web
-          topologyKey: kubernetes.io/hostname
-  
-  task_affinity:
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-            - key: app.kubernetes.io/name
-              operator: In
-              values:
-              - awx
-            - key: app.kubernetes.io/component
-              operator: In
-              values:
-              - task
-          topologyKey: kubernetes.io/hostname

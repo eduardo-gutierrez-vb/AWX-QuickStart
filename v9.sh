@@ -690,32 +690,32 @@ dependencies:
       - community.sap_install
 
   python:
-    - dnspython>=2.2.0
-    - urllib3>=1.26.0
-    - pykerberos>=1.2.1
-    - pywinrm>=0.4.3
-    - pypsrp[kerberos]>=0.8.0
-    - azure-cli-core>=2.40.0
-    - azure-common>=1.1.28
-    - azure-mgmt-compute>=23.1.0
-    - azure-mgmt-network>=19.0.0
-    - azure-mgmt-resource>=20.0.0
-    - azure-mgmt-storage>=19.0.0
-    - azure-identity>=1.12.0
-    - azure-mgmt-authorization>=2.0.0
-    - pyVim>=0.0.26
-    - PyVmomi>=7.0.3
-    - proxmoxer>=1.3.0
-    - requests>=2.28.0
-    - xmltodict>=0.13.0
-    - ncclient>=0.6.13
-    - lxml>=4.6.0
-    - zabbix-api>=0.5.4
-    - grafana-api>=1.0.3
-    - cryptography>=3.4.8
-    - jmespath>=0.10.0
-    - netaddr>=0.8.0
-    - awxkit==21.6.0
+    - dnspython
+    - urllib3
+    - pykerberos
+    - pywinrm
+    - pypsrp[kerberos]
+    - azure-cli-core
+    - azure-common
+    - azure-mgmt-compute
+    - azure-mgmt-network
+    - azure-mgmt-resource
+    - azure-mgmt-storage
+    - azure-identity
+    - azure-mgmt-authorization
+    - pyVim
+    - PyVmomi
+    - proxmoxer
+    - requests
+    - xmltodict
+    - ncclient
+    - lxml
+    - zabbix-api
+    - grafana-api
+    - cryptography
+    - jmespath
+    - netaddr
+    - awxkit
 
 additional_build_steps:
   prepend_base:
@@ -730,7 +730,7 @@ additional_build_steps:
   append_base:
     - RUN python3 -m pip install --upgrade pip setuptools wheel
     - RUN python3 -m pip install azure-cli
-    - COPY --from=quay.io/project-receptor/receptor:v1.4.8 /usr/bin/receptor /usr/bin/receptor
+    - COPY --from=quay.io/project-receptor/receptor:latest /usr/bin/receptor /usr/bin/receptor
     - RUN mkdir -p /var/run/receptor
     - RUN chmod +x /usr/bin/receptor
     - RUN mkdir -p /opt/ansible/collections

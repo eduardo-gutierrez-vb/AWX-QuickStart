@@ -18,7 +18,7 @@ NC='\033[0m'
 REPO_DIR="AWX-QuickStart"
 if [ ! -d "$REPO_DIR" ]; then
     git clone https://github.com/eduardo-gutierrez-vb/AWX-QuickStart.git "$REPO_DIR"
-    else
+else
     rm -r AWX-QuickStart*
 fi
 

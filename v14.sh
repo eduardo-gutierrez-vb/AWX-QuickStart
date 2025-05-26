@@ -891,7 +891,7 @@ spec:
 EOF
 
     kubectl apply -f /tmp/awx-instance.yaml -n "$AWX_NAMESPACE"
-    rm /tmp/awx-instance.yaml
+    # rm /tmp/awx-instance.yaml
     
     log_success "Instância AWX criada com recursos calculados dinamicamente!"
 }

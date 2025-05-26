@@ -1,198 +1,295 @@
 #!/bin/bash
-# lib/services/ee_builder.sh - Construção de Execution Environment
+# lib/services/ee_builder.sh - Construção de Execution Environment Otimizada
 
+# Importar dependências necessárias
 source "$(dirname "${BASH_SOURCE[0]}")/../core/logger.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../core/validator.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../utils/common.sh"
 
-create_optimized_ee_files() {
-    log_info "Criando arquivos de configuração EE otimizados..."
+# Configurações do módulo
+readonly EE_MODULE_NAME="ee_builder"
+readonly TEMPLATES_DIR="${PROJECT_ROOT}/config/templates"
+readonly EE_TEMP_DIR="/tmp/awx-ee-$(date +%s)"
+
+# Variáveis de configuração
+EE_IMAGE_TAG="${EE_IMAGE_TAG:-awx-enterprise-ee:latest}"
+EE_BASE_IMAGE="${EE_BASE_IMAGE:-quay.io/ansible/awx-ee:latest}"
+ANSIBLE_CORE_VERSION="${ANSIBLE_CORE_VERSION:-2.14.0}"
+
+# Função para validar pré-requisitos do módulo
+validate_ee_prerequisites() {
+    log_debug "Validando pré-requisitos para construção de EE..."
     
-    cat > execution-environment.yml << EOF
----
-version: 3
-
-images:
-  base_image:
-    name: quay.io/ansible/awx-ee:latest
-
-dependencies:
-  ansible_core:
-    package_pip: ansible-core==2.14.0
-  ansible_runner:
-    package_pip: ansible-runner
-  
-  galaxy: collections.yml
-  python: requirements.txt
-  system: bindep.txt
-
-additional_build_steps:
-  prepend_base:
-    # Ferramentas SAP específicas quando disponíveis
-    - RUN dnf update -y && dnf install -y epel-release
-    # Atualização do sistema e instalação de repositórios
-    - RUN dnf install -y python3 python3-pip python3-devel gcc gcc-c++ make
-    - RUN dnf install -y krb5-devel krb5-libs krb5-workstation
-    - RUN dnf install -y libxml2-devel libxslt-devel libffi-devel
-    - RUN dnf install -y openssh-clients sshpass git rsync iputils bind-utils
-    - RUN dnf install -y sudo which procps-ng unzip
-    # Instalação de ferramentas de desenvolvimento
-    - RUN mkdir -p /usr/local/sap/nwrfcsdk
-    - RUN mkdir -p /etc/ld.so.conf.d
-    # Preparação para SAP NW RFC SDK
-    - ENV SAPNWRFC_HOME=/usr/local/sap/nwrfcsdk
-    - ENV LD_LIBRARY_PATH=/usr/local/sap/nwrfcsdk/lib:\$LD_LIBRARY_PATH
-    - ENV PATH=/usr/local/sap/nwrfcsdk/bin:\$PATH
-  
-  append_base:
-    # Configuração de environment variables para SAP
-    - RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel
-    # Atualização do pip e ferramentas Python
-    - RUN python3 -m pip install --no-cache-dir pyrfc==3.3.1 || echo "PyRFC installation failed - SAP NW RFC SDK may be required"
-    # Instalação específica do PyRFC com versão fixa
-    - RUN python3 -m pip install --no-cache-dir azure-cli
-    # Instalação do Azure CLI
-    - RUN mkdir -p /opt/ansible/{collections,playbooks,inventories,roles}
-    # Configuração de diretórios Ansible
-    - RUN echo "/usr/local/sap/nwrfcsdk/lib" > /etc/ld.so.conf.d/nwrfcsdk.conf
-    - RUN ldconfig
-    # Configuração do ldconfig para SAP libraries
-    - RUN dnf clean all && rm -rf /var/cache/dnf
-    # Limpeza do sistema
-    - RUN python3 -c "import ansible; print('Ansible version:', ansible.__version__)"
-    - RUN python3 -c "try: import pyrfc; print('PyRFC successfully imported') except ImportError as e: print('PyRFC import failed:', e)"
-    # Verificação das instalações
-    - RUN mkdir -p /var/run/receptor /tmp/receptor
-    - COPY --from=quay.io/ansible/receptor:v1.5.5 /usr/bin/receptor /usr/bin/receptor
-    - RUN chmod +x /usr/bin/receptor
-EOF
-
-    cat > collections.yml << EOF
-collections:
-  # Coleções de rede e conectividade
-  - name: ansible.netcommon
-  - name: ansible.utils
-  - name: community.network
-  - name: cisco.ios
-  - name: fortinet.fortios
-  
-  # Coleções de sistema operacional
-  - name: ansible.windows
-  - name: ansible.posix
-  - name: community.windows
-  - name: microsoft.ad
-  
-  # Coleções de cloud e virtualização
-  - name: azure.azcollection
-  - name: maxhoesel.proxmox
-  - name: community.docker
-  
-  # Coleções de monitoramento e observabilidade
-  - name: community.zabbix
-  - name: grafana.grafana
-  
-  # Coleções de segurança e criptografia
-  - name: community.crypto
-  
-  # Coleções utilitárias
-  - name: community.general
-  - name: community.dns
-  - name: community.saplibs
-  - name: ansible.eda
-EOF
-
-    cat > requirements.txt << EOF
-# Dependências SAP específicas
-pyrfc==3.3.1
-
-# Dependências de rede e conectividade
-dnspython
-urllib3
-ncclient
-netaddr
-lxml
-
-# Dependências Windows e autenticação
-pykerberos
-pywinrm
-pypsrp[kerberos]
-
-# Dependências Azure
-azure-cli-core
-azure-common
-azure-mgmt-compute
-azure-mgmt-network
-azure-mgmt-resource
-azure-mgmt-storage
-azure-identity
-azure-mgmt-authorization
-
-# Dependências de virtualização
-pyVim
-PyVmomi
-proxmoxer
-
-# Dependências de monitoramento
-zabbix-api
-grafana-api
-
-# Dependências gerais
-requests
-xmltodict
-cryptography
-jmespath
-awxkit
-
-# Dependências adicionais para AWX
-psutil
-python-dateutil
-EOF
-
-    cat > bindep.txt << EOF
-# Dependências para compilação Python C extensions
-gcc
-gcc-c++
-make
-python3-devel
-libffi-devel
-
-# Ferramentas de desenvolvimento para compilação
-unzip
-git
-openssh-clients
-sshpass
-rsync
-iputils
-bind-utils
-EOF
-}
-
-create_execution_environment() {
-    log_header "CRIAÇÃO DO EXECUTION ENVIRONMENT"
-    source "$HOME/ansible-ee-venv/bin/activate"
-    
-    log_info "Preparando Execution Environment personalizado..."
-    
-    EE_DIR="/tmp/awx-ee-$(date +%s)"
-    mkdir -p "$EE_DIR"
-    cd "$EE_DIR"
-    
-    create_optimized_ee_files
-    
-    log_info "Construindo Execution Environment personalizado..."
-    if [[ "$VERBOSE" == "true" ]]; then
-        ansible-builder build -t "localhost:${REGISTRY_PORT:-5001}/awx-enterprise-ee:latest" \
-            -f execution-environment.yml --verbosity 2
-    else
-        ansible-builder build -t "localhost:${REGISTRY_PORT:-5001}/awx-enterprise-ee:latest" \
-            -f execution-environment.yml
+    # Verificar se ansible-builder está disponível
+    if ! command -v ansible-builder &> /dev/null; then
+        log_error "ansible-builder não encontrado. Execute install_dependencies primeiro."
+        return 1
     fi
     
-    log_info "Enviando imagem para registry local..."
-    docker push "localhost:${REGISTRY_PORT:-5001}/awx-enterprise-ee:latest"
+    # Verificar se docker está executando
+    if ! docker info &> /dev/null; then
+        log_error "Docker não está executando ou não está acessível."
+        return 1
+    fi
     
-    curl -s "http://localhost:${REGISTRY_PORT:-5001}/v2/_catalog" 2>/dev/null | grep awx-enterprise-ee || \
-        log_warning "Registry verification failed"
+    # Verificar se o registry local está ativo
+    if ! curl -s "http://localhost:${REGISTRY_PORT:-5001}/v2/" &> /dev/null; then
+        log_error "Registry local não está disponível na porta ${REGISTRY_PORT:-5001}"
+        return 1
+    fi
     
-    cd - && rm -rf "$EE_DIR"
+    # Verificar se os templates existem
+    if [[ ! -d "$TEMPLATES_DIR" ]]; then
+        log_error "Diretório de templates não encontrado: $TEMPLATES_DIR"
+        return 1
+    fi
     
-    log_success "Execution Environment criado e enviado com sucesso!"
+    log_debug "Todos os pré-requisitos validados com sucesso"
+    return 0
 }
+
+# Função para processar templates com substituição de variáveis
+process_template() {
+    local template_file="$1"
+    local output_file="$2"
+    
+    if [[ ! -f "$template_file" ]]; then
+        log_error "Template não encontrado: $template_file"
+        return 1
+    fi
+    
+    log_debug "Processando template: $template_file -> $output_file"
+    
+    # Criar mapa de substituições baseado em variáveis de ambiente
+    local substitutions=(
+        "s/\${REGISTRYPORT}/${REGISTRY_PORT:-5001}/g"
+        "s/\${HOSTPORT}/${HOST_PORT:-8080}/g"
+        "s/\${PERFIL}/${PERFIL:-dev}/g"
+        "s/\${AWXNAMESPACE}/${AWX_NAMESPACE:-awx}/g"
+        "s/\${WEBREPLICAS}/${WEB_REPLICAS:-1}/g"
+        "s/\${TASKREPLICAS}/${TASK_REPLICAS:-1}/g"
+        "s/\${AWXWEBCPUREQ}/${WEB_CPU_REQ:-500m}/g"
+        "s/\${AWXWEBCPULIM}/${WEB_CPU_LIM:-1000m}/g"
+        "s/\${AWXWEBMEMREQ}/${WEB_MEM_REQ:-1Gi}/g"
+        "s/\${AWXWEBMEMLIM}/${WEB_MEM_LIM:-2Gi}/g"
+        "s/\${AWXTASKCPUREQ}/${TASK_CPU_REQ:-1000m}/g"
+        "s/\${AWXTASKCPULIM}/${TASK_CPU_LIM:-2000m}/g"
+        "s/\${AWXTASKMEMREQ}/${TASK_MEM_REQ:-2Gi}/g"
+        "s/\${AWXTASKMEMLIM}/${TASK_MEM_LIM}/g"
+        "s/\${ANSIBLE_CORE_VERSION}/${ANSIBLE_CORE_VERSION}/g"
+        "s/\${EE_BASE_IMAGE}/${EE_BASE_IMAGE}/g"
+    )
+    
+    # Aplicar substituições usando sed
+    local temp_content
+    temp_content=$(cat "$template_file")
+    
+    for substitution in "${substitutions[@]}"; do
+        temp_content=$(echo "$temp_content" | sed "$substitution")
+    done
+    
+    echo "$temp_content" > "$output_file"
+    
+    if [[ $? -eq 0 ]]; then
+        log_debug "Template processado com sucesso: $output_file"
+        return 0
+    else
+        log_error "Falha ao processar template: $template_file"
+        return 1
+    fi
+}
+
+# Função para preparar arquivos de configuração EE
+prepare_ee_configuration() {
+    log_info "Preparando arquivos de configuração do Execution Environment..."
+    
+    # Criar diretório temporário para construção
+    mkdir -p "$EE_TEMP_DIR" || {
+        log_error "Falha ao criar diretório temporário: $EE_TEMP_DIR"
+        return 1
+    }
+    
+    cd "$EE_TEMP_DIR" || {
+        log_error "Falha ao acessar diretório: $EE_TEMP_DIR"
+        return 1
+    }
+    
+    # Processar template principal do EE
+    if ! process_template "$TEMPLATES_DIR/ee-config.yml.tpl" "execution-environment.yml"; then
+        log_error "Falha ao processar template execution-environment.yml"
+        return 1
+    fi
+    
+    # Copiar arquivos de dependências dos templates
+    local template_files=(
+        "requirements.txt"
+        "bindep.txt"
+        "collections.yml"
+    )
+    
+    for file in "${template_files[@]}"; do
+        if [[ -f "$TEMPLATES_DIR/$file" ]]; then
+            cp "$TEMPLATES_DIR/$file" "./$file" || {
+                log_error "Falha ao copiar arquivo: $file"
+                return 1
+            }
+            log_debug "Arquivo copiado: $file"
+        else
+            log_warning "Arquivo template não encontrado: $TEMPLATES_DIR/$file"
+        fi
+    done
+    
+    # Validar arquivos de configuração
+    if ! validate_ee_configuration; then
+        log_error "Validação dos arquivos de configuração falhou"
+        return 1
+    fi
+    
+    log_success "Arquivos de configuração preparados com sucesso"
+    return 0
+}
+
+# Função para validar configuração do EE
+validate_ee_configuration() {
+    log_debug "Validando configuração do Execution Environment..."
+    
+    # Verificar se todos os arquivos necessários existem
+    local required_files=(
+        "execution-environment.yml"
+        "requirements.txt"
+        "bindep.txt"
+        "collections.yml"
+    )
+    
+    for file in "${required_files[@]}"; do
+        if [[ ! -f "$file" ]]; then
+            log_error "Arquivo obrigatório não encontrado: $file"
+            return 1
+        fi
+    done
+    
+    # Validar sintaxe YAML do arquivo principal
+    if command -v yamllint &> /dev/null; then
+        if ! yamllint execution-environment.yml &> /dev/null; then
+            log_warning "Validação YAML detectou problemas em execution-environment.yml"
+        fi
+    fi
+    
+    log_debug "Configuração do EE validada com sucesso"
+    return 0
+}
+
+# Função principal para construção do EE
+build_execution_environment() {
+    local image_tag="localhost:${REGISTRY_PORT:-5001}/${EE_IMAGE_TAG}"
+    
+    log_info "Construindo Execution Environment: $image_tag"
+    
+    # Preparar argumentos do ansible-builder
+    local build_args=(
+        "build"
+        "-t" "$image_tag"
+        "-f" "execution-environment.yml"
+        "--container-runtime" "docker"
+    )
+    
+    # Adicionar verbosidade se solicitado
+    if [[ "$VERBOSE" == "true" ]]; then
+        build_args+=("--verbosity" "2")
+    fi
+    
+    # Executar construção
+    if ansible-builder "${build_args[@]}"; then
+        log_success "Execution Environment construído com sucesso"
+    else
+        log_error "Falha na construção do Execution Environment"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Função para publicar EE no registry
+publish_execution_environment() {
+    local image_tag="localhost:${REGISTRY_PORT:-5001}/${EE_IMAGE_TAG}"
+    
+    log_info "Publicando Execution Environment no registry local..."
+    
+    if docker push "$image_tag"; then
+        log_success "Execution Environment publicado com sucesso"
+    else
+        log_error "Falha ao publicar Execution Environment"
+        return 1
+    fi
+    
+    # Verificar se a imagem está disponível no registry
+    if curl -s "http://localhost:${REGISTRY_PORT:-5001}/v2/_catalog" | grep -q "awx-enterprise-ee"; then
+        log_info "Verification: Imagem confirmada no registry"
+    else
+        log_warning "Verification: Imagem pode não estar disponível no registry"
+    fi
+    
+    return 0
+}
+
+# Função para limpeza de recursos temporários
+cleanup_ee_build() {
+    log_debug "Executando limpeza de recursos do EE builder..."
+    
+    if [[ -d "$EE_TEMP_DIR" ]]; then
+        rm -rf "$EE_TEMP_DIR" || log_warning "Falha ao remover diretório temporário: $EE_TEMP_DIR"
+    fi
+    
+    # Remover imagens Docker temporárias se solicitado
+    if [[ "$CLEANUP_DOCKER_IMAGES" == "true" ]]; then
+        docker image prune -f &> /dev/null || log_warning "Falha na limpeza de imagens Docker"
+    fi
+}
+
+# Função principal do módulo
+create_execution_environment() {
+    log_header "CRIAÇÃO DO EXECUTION ENVIRONMENT"
+    
+    # Configurar trap para limpeza em caso de erro
+    trap cleanup_ee_build EXIT ERR
+    
+    # Ativar ambiente virtual se disponível
+    if [[ -f "$HOME/ansible-ee-venv/bin/activate" ]]; then
+        source "$HOME/ansible-ee-venv/bin/activate" || {
+            log_error "Falha ao ativar ambiente virtual"
+            return 1
+        }
+    fi
+    
+    # Executar validações
+    if ! validate_ee_prerequisites; then
+        log_error "Validação de pré-requisitos falhou"
+        return 1
+    fi
+    
+    # Preparar configuração
+    if ! prepare_ee_configuration; then
+        log_error "Preparação da configuração falhou"
+        return 1
+    fi
+    
+    # Construir Execution Environment
+    if ! build_execution_environment; then
+        log_error "Construção do Execution Environment falhou"
+        return 1
+    fi
+    
+    # Publicar no registry
+    if ! publish_execution_environment; then
+        log_error "Publicação do Execution Environment falhou"
+        return 1
+    fi
+    
+    log_success "Execution Environment criado e publicado com sucesso!"
+    return 0
+}
+
+# Exportar funções principais
+export -f create_execution_environment
+export -f validate_ee_prerequisites
+export -f process_template

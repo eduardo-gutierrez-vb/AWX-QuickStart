@@ -69,6 +69,8 @@ export_resource_variables() {
     export MEM_MB="${SYSTEM_RESOURCES[MEMORY_MB]}"
     export PERFIL="${SYSTEM_RESOURCES[PROFILE]}"
     
+    export SCRIPT_DIR
+
     # Exportar recursos disponíveis
     export AVAILABLE_CPU_MILLICORES="${AVAILABLE_RESOURCES[CPU_MILLICORES]}"
     export AVAILABLE_MEMORY_MB="${AVAILABLE_RESOURCES[MEMORY_MB]}"

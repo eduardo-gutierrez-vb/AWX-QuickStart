@@ -740,7 +740,6 @@ additional_build_steps:
 
 build_arg_defaults:
   ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v"
-  CONTAINERD_ENABLE_DEPRECATED_PULL_SCHEMA_1_IMAGE=1
 EOF
 }
 
@@ -814,10 +813,10 @@ calculate_awx_resources() {
     local task_mem_req="$((available_mem * 10 / 100))Mi"
     local task_mem_lim="$((available_mem * 50 / 100))Mi"
     
-    [ "${web_cpu_req%m}" -lt 500 ] && web_cpu_req="500m"
-    [ "${web_mem_req%Mi}" -lt 512 ] && web_mem_req="512Mi"
-    [ "${task_cpu_req%m}" -lt 500 ] && task_cpu_req="500m"
-    [ "${task_mem_req%Mi}" -lt 512 ] && task_mem_req="512Mi"
+    [ "${web_cpu_req%m}" -lt 512 ] && web_cpu_req="512m"
+    [ "${web_mem_req%Mi}" -lt 1024 ] && web_mem_req="1024Mi"
+    [ "${task_cpu_req%m}" -lt 512 ] && task_cpu_req="512m"
+    [ "${task_mem_req%Mi}" -lt 1024 ] && task_mem_req="1024Mi"
     
     export AWX_WEB_CPU_REQ="$web_cpu_req"
     export AWX_WEB_CPU_LIM="$web_cpu_lim"

@@ -659,20 +659,17 @@ create_optimized_ee_files() {
 version: 3
 images:
   base_image:
-    name: quay.io/centos/centos:stream9
+    name: quay.io/ansible/awx-ee:latest
 
 dependencies:
   ansible_core:
-    package_pip: ansible-core>=2.15.8
+    package_pip: ansible-core>=2.14.0
   ansible_runner:
     package_pip: ansible-runner
 
   galaxy:
     collections:
-      # Coleções essenciais do AWX
-      - name: awx.awx
-      - name: ansible.controller
-      
+
       # Coleções de rede e conectividade
       - name: ansible.netcommon
       - name: ansible.utils
@@ -701,51 +698,51 @@ dependencies:
       # Coleções utilitárias
       - name: community.general
       - name: community.dns
-      - name: community.sap_install
+      - name: community.sap_libs
       - name: ansible.eda
 
   python:
     # Dependências de rede e conectividade
-    - dnspython>=2.0.0
-    - urllib3>=1.26.0
-    - ncclient>=0.6.0
-    - netaddr>=0.8.0
-    - lxml>=4.6.0
+    - dnspython
+    - urllib3
+    - ncclient
+    - netaddr
+    - lxml
     
     # Dependências Windows e autenticação
-    - pykerberos>=1.2.0
-    - pywinrm>=0.4.0
-    - "pypsrp[kerberos]>=0.8.0"
+    - pykerberos
+    - pywinrm
+    - "pypsrp[kerberos]"
     
     # Dependências Azure
-    - azure-cli-core>=2.0.0
-    - azure-common>=1.1.0
-    - azure-mgmt-compute>=20.0.0
-    - azure-mgmt-network>=19.0.0
-    - azure-mgmt-resource>=20.0.0
-    - azure-mgmt-storage>=19.0.0
-    - azure-identity>=1.8.0
-    - azure-mgmt-authorization>=2.0.0
+    - azure-cli-core
+    - azure-common
+    - azure-mgmt-compute
+    - azure-mgmt-network
+    - azure-mgmt-resource
+    - azure-mgmt-storage
+    - azure-identity
+    - azure-mgmt-authorization
     
     # Dependências de virtualização
-    - pyVim>=7.0.0
-    - PyVmomi>=7.0.0
-    - proxmoxer>=1.3.0
+    - pyVim
+    - PyVmomi
+    - proxmoxer
     
     # Dependências de monitoramento
-    - zabbix-api>=0.5.0
-    - grafana-api>=1.0.0
+    - zabbix-api
+    - grafana-api
     
     # Dependências gerais
-    - requests>=2.28.0
-    - xmltodict>=0.12.0
-    - cryptography>=3.4.0
-    - jmespath>=0.10.0
-    - awxkit>=21.0.0
+    - requests
+    - xmltodict
+    - cryptography
+    - jmespath
+    - awxkit
     
     # Dependências adicionais para AWX
-    - psutil>=5.8.0
-    - python-dateutil>=2.8.0
+    - psutil
+    - python-dateutil
 
   system:
     - git
@@ -888,7 +885,7 @@ spec:
   admin_user: admin
   admin_email: snoc@grupvob.com.br
   
-  control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
+  #control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
   
   replicas: ${WEB_REPLICAS}
   web_replicas: ${WEB_REPLICAS}

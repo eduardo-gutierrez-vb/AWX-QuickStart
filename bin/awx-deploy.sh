@@ -13,13 +13,16 @@ CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m'
 
-
 # Verificar e clonar repositório se necessário
 REPO_DIR="AWX-QuickStart"
 if [ ! -d "$REPO_DIR" ]; then
+    echo -e "${BLUE}Clonando repositório AWX-QuickStart...${NC}"
     git clone https://github.com/eduardo-gutierrez-vb/AWX-QuickStart.git "$REPO_DIR"
 else
-    rm -r AWX-QuickStart*
+    echo -e "${YELLOW}Repositório já existe, atualizando...${NC}"
+    cd "$REPO_DIR"
+    git pull origin main || git pull origin master
+    cd ..
 fi
 
 # Entrar no diretório do projeto
@@ -59,6 +62,30 @@ VERBOSE="false"
 FORCE_CPU=""
 FORCE_MEM_MB=""
 
+# Função para exportar variáveis de recursos calculados
+export_resource_variables() {
+    # Exportar variáveis do sistema
+    export CORES="${SYSTEM_RESOURCES[CPU_CORES]}"
+    export MEM_MB="${SYSTEM_RESOURCES[MEMORY_MB]}"
+    export PERFIL="${SYSTEM_RESOURCES[PROFILE]}"
+    
+    # Exportar recursos disponíveis
+    export AVAILABLE_CPU_MILLICORES="${AVAILABLE_RESOURCES[CPU_MILLICORES]}"
+    export AVAILABLE_MEMORY_MB="${AVAILABLE_RESOURCES[MEMORY_MB]}"
+    
+    # Exportar configurações AWX
+    export WEB_REPLICAS="${AWX_RESOURCES[WEB_REPLICAS]}"
+    export TASK_REPLICAS="${AWX_RESOURCES[TASK_REPLICAS]}"
+    export WEB_CPU_REQ="${AWX_RESOURCES[WEB_CPU_REQ]}"
+    export WEB_CPU_LIM="${AWX_RESOURCES[WEB_CPU_LIM]}"
+    export WEB_MEM_REQ="${AWX_RESOURCES[WEB_MEM_REQ]}"
+    export WEB_MEM_LIM="${AWX_RESOURCES[WEB_MEM_LIM]}"
+    export TASK_CPU_REQ="${AWX_RESOURCES[TASK_CPU_REQ]}"
+    export TASK_CPU_LIM="${AWX_RESOURCES[TASK_CPU_LIM]}"
+    export TASK_MEM_REQ="${AWX_RESOURCES[TASK_MEM_REQ]}"
+    export TASK_MEM_LIM="${AWX_RESOURCES[TASK_MEM_LIM]}"
+}
+
 show_help() {
     cat << EOF
 ${CYAN}Script de Implantação AWX com Kind${NC}
@@ -85,19 +112,12 @@ EOF
 }
 
 main() {
-    # Inicializar recursos
-    detect_system_resources
-    export_resource_variables
-    
-    # Configurações derivadas
-    DEFAULT_CLUSTER_NAME="awx-cluster-$PERFIL"
-    
-    # Processar argumentos
+    # Processar argumentos primeiro para capturar FORCE_CPU e FORCE_MEM_MB
     while getopts "c:p:f:m:dvh" opt; do
         case $opt in
             c)
                 if [[ -z "$OPTARG" ]]; then
-                    log_error "Nome do cluster não pode estar vazio"
+                    echo -e "${RED}Erro: Nome do cluster não pode estar vazio${NC}"
                     exit 1
                 fi
                 CLUSTER_NAME="$OPTARG"
@@ -113,31 +133,26 @@ main() {
                     exit 1
                 fi
                 FORCE_CPU="$OPTARG"
-                detect_system_resources
-                export_resource_variables
-                DEFAULT_CLUSTER_NAME="awx-cluster-$PERFIL"
                 ;;
             m)
                 if ! validate_memory "$OPTARG"; then
                     exit 1
                 fi
                 FORCE_MEM_MB="$OPTARG"
-                detect_system_resources
-                export_resource_variables
-                DEFAULT_CLUSTER_NAME="awx-cluster-$PERFIL"
                 ;;
             d)
                 INSTALL_DEPS_ONLY="true"
                 ;;
             v)
                 VERBOSE="true"
+                export LOG_LEVEL="debug"
                 ;;
             h)
                 show_help
                 exit 0
                 ;;
             *)
-                log_error "Opção inválida: -$OPTARG"
+                echo -e "${RED}Erro: Opção inválida: -$OPTARG${NC}"
                 show_help
                 exit 1
                 ;;
@@ -146,7 +161,14 @@ main() {
     
     shift $((OPTIND - 1))
     
-    # Configurar variáveis finais
+    # Inicializar recursos do sistema
+    detect_system_resources
+    calculate_available_resources
+    calculate_awx_resources
+    export_resource_variables
+    
+    # Configurações derivadas (após calcular recursos)
+    DEFAULT_CLUSTER_NAME="awx-cluster-$PERFIL"
     CLUSTER_NAME="${CLUSTER_NAME:-$DEFAULT_CLUSTER_NAME}"
     HOST_PORT="${HOST_PORT:-$DEFAULT_HOST_PORT}"
     AWX_NAMESPACE="awx"
@@ -161,6 +183,10 @@ main() {
     log_info "Memória: ${GREEN}$MEM_MB MB${NC}"
     log_info "Perfil: ${GREEN}$PERFIL${NC}"
     
+    log_info "Recursos Disponíveis:"
+    log_info "CPU Disponível: ${GREEN}$AVAILABLE_CPU_MILLICORES m${NC}"
+    log_info "Memória Disponível: ${GREEN}$AVAILABLE_MEMORY_MB MB${NC}"
+    
     log_info "Configuração de Implantação:"
     log_info "Ambiente: ${GREEN}$PERFIL${NC}"
     log_info "Cluster: ${GREEN}$CLUSTER_NAME${NC}"
@@ -169,6 +195,12 @@ main() {
     log_info "Web Réplicas: ${GREEN}$WEB_REPLICAS${NC}"
     log_info "Task Réplicas: ${GREEN}$TASK_REPLICAS${NC}"
     log_info "Verbose: ${GREEN}$VERBOSE${NC}"
+    
+    log_info "Recursos AWX Calculados:"
+    log_info "Web CPU: ${GREEN}$WEB_CPU_REQ${NC} - ${GREEN}$WEB_CPU_LIM${NC}"
+    log_info "Web Memória: ${GREEN}$WEB_MEM_REQ${NC} - ${GREEN}$WEB_MEM_LIM${NC}"
+    log_info "Task CPU: ${GREEN}$TASK_CPU_REQ${NC} - ${GREEN}$TASK_CPU_LIM${NC}"
+    log_info "Task Memória: ${GREEN}$TASK_MEM_REQ${NC} - ${GREEN}$TASK_MEM_LIM${NC}"
     
     # Executar instalação
     install_dependencies
@@ -188,9 +220,10 @@ main() {
     show_final_info
     
     log_success "Instalação do AWX concluída com sucesso!"
-
+    
+    # Retornar ao diretório pai e cleanup opcional
     cd ../
-    rm AWX-QuickStart/*
+    log_info "Instalação finalizada. Diretório de trabalho: $(pwd)"
 }
 
 # Executar função principal

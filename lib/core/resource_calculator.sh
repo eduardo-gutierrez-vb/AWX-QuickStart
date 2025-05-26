@@ -195,10 +195,10 @@ calculate_awx_resources() {
     local task_replicas=$(calculate_replicas "$profile" "$available_cpu" "task")
     
     # Calcular recursos por componente
-    local web_cpu_req="${available_cpu}*15/100m"
-    local web_cpu_lim="${available_cpu}*30/100m"
-    local web_mem_req="${available_memory}*30/100Mi"
-    local web_mem_lim="${available_memory}*50/100Mi"
+    local web_cpu_req="$((available_cpu * 15 / 100))m"
+    local web_cpu_lim="$((available_cpu * 30 / 100))m"
+    local web_mem_req="$((available_memory * 30 / 100))Mi"
+    local web_mem_lim="$((available_memory * 50 / 100))Mi"
     
     local task_cpu_req="$((available_memory * 15 / 100))m"
     local task_cpu_lim="$((available_memory * 60 / 100))m"

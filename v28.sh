@@ -698,7 +698,6 @@ dependencies:
       # Coleções utilitárias
       - name: community.general
       - name: community.dns
-      - name: community.sap_libs
       - name: ansible.eda
 
   python:

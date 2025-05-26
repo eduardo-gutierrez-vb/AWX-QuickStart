@@ -853,41 +853,8 @@ metadata:
 spec:
   service_type: nodeport
   nodeport_port: ${HOST_PORT}
-  admin_user: admin
-  admin_email: snoc@grupvob.com.br
   
   control_plane_ee_image: localhost:${REGISTRY_PORT}/awx-enterprise-ee:latest
-  
-  replicas: ${WEB_REPLICAS}
-  web_replicas: ${WEB_REPLICAS}
-  task_replicas: ${TASK_REPLICAS}
-  
-  web_resource_requirements:
-    requests:
-      cpu: ${AWX_WEB_CPU_REQ}
-      memory: ${AWX_WEB_MEM_REQ}
-    limits:
-      cpu: ${AWX_WEB_CPU_LIM}
-      memory: ${AWX_WEB_MEM_LIM}
-  
-  task_resource_requirements:
-    requests:
-      cpu: ${AWX_TASK_CPU_REQ}
-      memory: ${AWX_TASK_MEM_REQ}
-    limits:
-      cpu: ${AWX_TASK_CPU_LIM}
-      memory: ${AWX_TASK_MEM_LIM}
-  
-  postgres_configuration_secret: awx-postgres-configuration
-  postgres_storage_requirements:
-    requests:
-      storage: 8Gi
-    limits:
-      storage: 8Gi
-
-  projects_persistence: true
-  projects_storage_size: 8Gi
-  projects_storage_access_mode: ReadWriteOnce
 EOF
 
     kubectl apply -f /tmp/awx-instance.yaml -n "$AWX_NAMESPACE"

@@ -695,69 +695,43 @@ dependencies:
     package_pip: ansible-core>=2.16.0
   ansible_runner:
     package_pip: ansible-runner
-  
+
   galaxy: |
     collections:
-      # Core Collections
       - name: ansible.netcommon
       - name: ansible.utils
       - name: ansible.windows
       - name: ansible.posix
-      
-      # Event Driven Automation
       - name: ansible.eda
-      
-      # Microsoft Environment
       - name: microsoft.ad
       - name: community.windows
-      
-      # Azure Cloud
       - name: azure.azcollection
-      
-      # Monitoring & Observability
       - name: community.zabbix
       - name: grafana.grafana
-      
-      # Security
       - name: community.crypto
-      
-      # Network Management
       - name: cisco.ios
       - name: fortinet.fortios
       - name: community.network
-      
-      # Infrastructure & Virtualization
       - name: maxhoesel.proxmox
-      
-      # Applications & Development
       - name: community.general
       - name: community.docker
       - name: community.dns
-      
-      # SAP Solutions
       - name: community.sap_install
-      
-    requirements: |
-      # Node.js Management
+
+  requirements: |
+    roles:
       - src: geerlingguy.nodejs
         name: geerlingguy.nodejs
-      
-      # HPE Comware Switches
       - src: https://github.com/HPENetworking/hpe-cw7-ansible.git
         name: hpe_cw7
         version: main
 
   python: |
-    # Core Dependencies
     dnspython>=2.2.0
     urllib3>=1.26.0
-    
-    # Windows/AD Authentication
     pykerberos>=1.2.1
     pywinrm>=0.4.3
     pypsrp[kerberos]>=0.8.0
-    
-    # Azure Dependencies
     azure-cli-core>=2.40.0
     azure-common>=1.1.28
     azure-mgmt-compute>=23.1.0
@@ -766,76 +740,43 @@ dependencies:
     azure-mgmt-storage>=19.0.0
     azure-identity>=1.12.0
     azure-mgmt-authorization>=2.0.0
-    
-    # VMware/Proxmox Dependencies
     pyVim>=0.0.26
     PyVmomi>=7.0.3
     proxmoxer>=1.3.0
     requests>=2.28.0
-    
-    # SAP Dependencies
     xmltodict>=0.13.0
-    
-    # HPE Comware Dependencies
     ncclient>=0.6.13
     lxml>=4.6.0
-    
-    # Monitoring Dependencies
     zabbix-api>=0.5.4
     grafana-api>=1.0.3
-    
-    # Security Dependencies
     cryptography>=3.4.8
-    
-    # General Dependencies
     jmespath>=0.10.0
     netaddr>=0.8.0
     awxkit==21.6.0
 
 additional_build_steps:
   prepend_base:
-    # Update system and install base packages
     - RUN dnf update -y
     - RUN dnf install -y epel-release
     - RUN dnf install -y python3 python3-pip python3-devel
-    
-    # Kerberos support for AD authentication
     - RUN dnf install -y krb5-devel krb5-libs krb5-workstation
-    
-    # Development tools for Python packages compilation
     - RUN dnf install -y gcc gcc-c++ make
-    
-    # Network tools
     - RUN dnf install -y openssh-clients sshpass
-    
-    # XML processing for SAP
     - RUN dnf install -y libxml2-devel libxslt-devel
-    
+
   append_base:
-    # Upgrade pip and install Python packages
     - RUN python3 -m pip install --upgrade pip setuptools wheel
-    
-    # Install Azure CLI
     - RUN python3 -m pip install azure-cli
-    
-    # Copy receptor for Event Driven Ansible
     - COPY --from=quay.io/project-receptor/receptor:latest /usr/bin/receptor /usr/bin/receptor
     - RUN mkdir -p /var/run/receptor
-    
-    # Create directories for custom configurations
     - RUN mkdir -p /opt/ansible/collections
     - RUN mkdir -p /opt/ansible/playbooks
     - RUN mkdir -p /opt/ansible/inventories
-    
-    # Set proper permissions
     - RUN chmod +x /usr/bin/receptor
-    
-    # Clean up package cache
     - RUN dnf clean all
 
 build_arg_defaults:
   ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v"
-
 EOF
 }
 

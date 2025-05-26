@@ -86,7 +86,7 @@ EOF
 
 main() {
     # Inicializar recursos
-    initialize_resource_calculations
+    initializeresources
     export_resource_variables
     
     # Configurações derivadas
@@ -113,7 +113,7 @@ main() {
                     exit 1
                 fi
                 FORCE_CPU="$OPTARG"
-                initialize_resource_calculations
+                initializeresources
                 export_resource_variables
                 DEFAULT_CLUSTER_NAME="awx-cluster-$PERFIL"
                 ;;
@@ -122,7 +122,7 @@ main() {
                     exit 1
                 fi
                 FORCE_MEM_MB="$OPTARG"
-                initialize_resource_calculations
+                initializeresources
                 export_resource_variables
                 DEFAULT_CLUSTER_NAME="awx-cluster-$PERFIL"
                 ;;

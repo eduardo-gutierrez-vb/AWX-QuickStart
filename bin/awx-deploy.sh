@@ -1,6 +1,10 @@
 #!/bin/bash
 # bin/awx-deploy - Script principal executável
 
+git clone https://github.com/eduardo-gutierrez-vb/AWX-QuickStart.git
+
+cd AWX-QuickStart
+
 set -e
 
 # Configuração de cores
@@ -14,8 +18,8 @@ WHITE='\033[1;37m'
 NC='\033[0m'
 
 # Diretório base do script
-SCRIPT_DIR="https://raw.githubusercontent.com/eduardo-gutierrez-vb/AWX-QuickStart/refs/heads/main"
-LIB_DIR="https://raw.githubusercontent.com/eduardo-gutierrez-vb/AWX-QuickStart/refs/heads/main/lib"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
 
 # Importar módulos
 source "$LIB_DIR/core/logger.sh"
@@ -165,6 +169,9 @@ main() {
     show_final_info
     
     log_success "Instalação do AWX concluída com sucesso!"
+
+    cd ../
+    rm AWX-QuickStart/*
 }
 
 # Executar função principal

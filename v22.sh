@@ -669,7 +669,7 @@ dependencies:
 
   galaxy:
     collections:
-      # Coleções essenciais do AWX (algumas já presentes na base)
+      # Coleções essenciais do AWX
       - name: awx.awx
       - name: ansible.controller
       
@@ -690,7 +690,6 @@ dependencies:
       - name: azure.azcollection
       - name: maxhoesel.proxmox
       - name: community.docker
-      - name: kubernetes.core
       
       # Coleções de monitoramento e observabilidade
       - name: community.zabbix
@@ -708,6 +707,7 @@ dependencies:
   python:
     # Dependências de rede e conectividade
     - dnspython>=2.0.0
+    - urllib3>=1.26.0
     - ncclient>=0.6.0
     - netaddr>=0.8.0
     - lxml>=4.6.0
@@ -736,39 +736,43 @@ dependencies:
     - zabbix-api>=0.5.0
     - grafana-api>=1.0.0
     
-    # Dependências adicionais para funcionalidades específicas
+    # Dependências gerais
+    - requests>=2.28.0
     - xmltodict>=0.12.0
     - cryptography>=3.4.0
     - jmespath>=0.10.0
+    - awxkit>=21.0.0
+    
+    # Dependências adicionais para AWX
     - psutil>=5.8.0
     - python-dateutil>=2.8.0
-    
+
   system:
-    # Apenas pacotes adicionais não presentes na base
-    - bind-utils
-    - iputils
+    - git
+    - openssh-clients
     - sshpass
+    - rsync
+    - iputils
+    - bind-utils
 
 additional_build_steps:
   prepend_base:
-    # Atualização e instalação de dependências específicas para coleções
-    - RUN microdnf update -y
-    - RUN microdnf install -y krb5-devel krb5-libs krb5-workstation
-    - RUN microdnf install -y libxml2-devel libxslt-devel
+    - RUN dnf update -y && dnf install -y epel-release
+    - RUN dnf install -y python3 python3-pip python3-devel gcc gcc-c++ make
+    - RUN dnf install -y krb5-devel krb5-libs krb5-workstation
+    - RUN dnf install -y libxml2-devel libxslt-devel libffi-devel
+    - RUN dnf install -y openssh-clients sshpass git rsync iputils bind-utils
+    - RUN dnf install -y sudo which procps-ng
 
   append_base:
-    # Instalação do Azure CLI
+    - RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel
     - RUN python3 -m pip install --no-cache-dir azure-cli
-    
-    # Criação de diretórios específicos para organização
     - RUN mkdir -p /opt/ansible/{collections,playbooks,inventories,roles}
-    
-    # Limpeza do cache para reduzir tamanho da imagem
-    - RUN microdnf clean all && rm -rf /var/cache/dnf/*
-    
-    # Verificação da instalação
+    - RUN dnf clean all && rm -rf /var/cache/dnf/*
     - RUN python3 -c "import ansible; print('Ansible version:', ansible.__version__)"
-
+    - RUN mkdir -p /var/run/receptor /tmp/receptor
+    - COPY --from=quay.io/ansible/receptor:v1.5.5 /usr/bin/receptor /usr/bin/receptor
+    - RUN chmod +x /usr/bin/receptor
 EOF
 }
 

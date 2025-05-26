@@ -667,55 +667,57 @@ dependencies:
   ansible_runner:
     package_pip: ansible-runner
 
-  galaxy: |
+  galaxy:
+    # Coleções listadas diretamente (formato válido para schema v3)
     collections:
-      - name: ansible.netcommon
-      - name: ansible.utils
-      - name: ansible.windows
-      - name: ansible.posix
-      - name: ansible.eda
-      - name: microsoft.ad
-      - name: community.windows
-      - name: azure.azcollection
-      - name: community.zabbix
-      - name: grafana.grafana
-      - name: community.crypto
-      - name: cisco.ios
-      - name: fortinet.fortios
-      - name: community.network
-      - name: maxhoesel.proxmox
-      - name: community.general
-      - name: community.docker
-      - name: community.dns
-      - name: community.sap_install
+      - ansible.netcommon
+      - ansible.utils
+      - ansible.windows
+      - ansible.posix
+      - ansible.eda
+      - microsoft.ad
+      - community.windows
+      - azure.azcollection
+      - community.zabbix
+      - grafana.grafana
+      - community.crypto
+      - cisco.ios
+      - fortinet.fortios
+      - community.network
+      - maxhoesel.proxmox
+      - community.general
+      - community.docker
+      - community.dns
+      - community.sap_install
 
-  python: |
-    dnspython>=2.2.0
-    urllib3>=1.26.0
-    pykerberos>=1.2.1
-    pywinrm>=0.4.3
-    pypsrp[kerberos]>=0.8.0
-    azure-cli-core>=2.40.0
-    azure-common>=1.1.28
-    azure-mgmt-compute>=23.1.0
-    azure-mgmt-network>=19.0.0
-    azure-mgmt-resource>=20.0.0
-    azure-mgmt-storage>=19.0.0
-    azure-identity>=1.12.0
-    azure-mgmt-authorization>=2.0.0
-    pyVim>=0.0.26
-    PyVmomi>=7.0.3
-    proxmoxer>=1.3.0
-    requests>=2.28.0
-    xmltodict>=0.13.0
-    ncclient>=0.6.13
-    lxml>=4.6.0
-    zabbix-api>=0.5.4
-    grafana-api>=1.0.3
-    cryptography>=3.4.8
-    jmespath>=0.10.0
-    netaddr>=0.8.0
-    awxkit==21.6.0
+  python:
+    # Lista de dependências Python (não use |)
+    - dnspython>=2.2.0
+    - urllib3>=1.26.0
+    - pykerberos>=1.2.1
+    - pywinrm>=0.4.3
+    - pypsrp[kerberos]>=0.8.0
+    - azure-cli-core>=2.40.0
+    - azure-common>=1.1.28
+    - azure-mgmt-compute>=23.1.0
+    - azure-mgmt-network>=19.0.0
+    - azure-mgmt-resource>=20.0.0
+    - azure-mgmt-storage>=19.0.0
+    - azure-identity>=1.12.0
+    - azure-mgmt-authorization>=2.0.0
+    - pyVim>=0.0.26
+    - PyVmomi>=7.0.3
+    - proxmoxer>=1.3.0
+    - requests>=2.28.0
+    - xmltodict>=0.13.0
+    - ncclient>=0.6.13
+    - lxml>=4.6.0
+    - zabbix-api>=0.5.4
+    - grafana-api>=1.0.3
+    - cryptography>=3.4.8
+    - jmespath>=0.10.0
+    - netaddr>=0.8.0
+    - awxkit==21.6.0
 
 additional_build_steps:
   prepend_base:
@@ -730,6 +732,7 @@ additional_build_steps:
   append_base:
     - RUN python3 -m pip install --upgrade pip setuptools wheel
     - RUN python3 -m pip install azure-cli
+    # Corrigido para imagem receptor schema v2 (removido digest SHA)
     - COPY --from=quay.io/project-receptor/receptor:latest /usr/bin/receptor /usr/bin/receptor
     - RUN mkdir -p /var/run/receptor
     - RUN mkdir -p /opt/ansible/collections
@@ -740,6 +743,7 @@ additional_build_steps:
 
 build_arg_defaults:
   ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v"
+
 EOF
 }
 

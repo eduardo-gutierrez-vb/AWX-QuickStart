@@ -733,8 +733,9 @@ additional_build_steps:
     - RUN mkdir -p /opt/ansible/collections
     - RUN mkdir -p /opt/ansible/playbooks
     - RUN mkdir -p /opt/ansible/inventories
-    - RUN chmod +x /usr/bin/receptor
     - RUN dnf clean all
+    - COPY --from=quay.io/ansible/receptor:v1.5.5 /usr/bin/receptor /usr/bin/receptor
+    - RUN mkdir -p /var/run/receptor
 
 build_arg_defaults:
   ANSIBLE_GALAXY_CLI_COLLECTION_OPTS: "-v"

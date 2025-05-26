@@ -1,10 +1,6 @@
 #!/bin/bash
 # bin/awx-deploy - Script principal executável
 
-git clone https://github.com/eduardo-gutierrez-vb/AWX-QuickStart.git
-
-cd AWX-QuickStart/
-
 set -e
 
 # Configuração de cores
@@ -17,9 +13,29 @@ CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m'
 
-# Diretório base do script
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}/AWX-QuickStart")" && pwd)"
-LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
+# Verificar e clonar repositório se necessário
+REPO_DIR="AWX-QuickStart"
+if [ ! -d "$REPO_DIR" ]; then
+    git clone https://github.com/eduardo-gutierrez-vb/AWX-QuickStart.git "$REPO_DIR"
+fi
+
+# Entrar no diretório do projeto
+cd "$REPO_DIR"
+
+# Diretório base do script (agora dentro do repositório)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="${SCRIPT_DIR}/lib"
+
+# Importar módulos com verificação
+import_module() {
+    local module="$1"
+    if [ -f "$module" ]; then
+        source "$module"
+    else
+        echo -e "${RED}Erro: Módulo não encontrado: $module${NC}"
+        exit 1
+    fi
+}
 
 # Importar módulos
 source "$LIB_DIR/core/logger.sh"

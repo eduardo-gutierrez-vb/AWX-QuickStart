@@ -3,10 +3,10 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/logger.sh"
 
-readonly SAFETY_FACTOR_PROD=70
-readonly SAFETY_FACTOR_DEV=80
-readonly MIN_CPU_MILLICORES=500
-readonly MIN_MEMORY_MB=512
+declare -A SAFETY_FACTOR_PROD=70
+declare -A SAFETY_FACTOR_DEV=80
+declare -A MIN_CPU_MILLICORES=500
+declare -A MIN_MEMORY_MB=512
 
 declare -A SYSTEM_RESOURCES
 declare -A AVAILABLE_RESOURCES  

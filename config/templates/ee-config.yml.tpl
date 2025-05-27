@@ -17,7 +17,7 @@ dependencies:
 additional_build_steps:
   prepend_base:
     - RUN dnf update -y && dnf install -y epel-release
-    - RUN dnf install -y python3 python3-pip python3-devel gcc gcc-c++ make
+    - RUN dnf install -y python3.9 python3.9-devel python3.9-pip gcc gcc-c++ make
     - RUN dnf install -y krb5-devel krb5-libs krb5-workstation
     - RUN dnf install -y libxml2-devel libxslt-devel libffi-devel
     - RUN dnf install -y openssh-clients sshpass git rsync iputils bind-utils

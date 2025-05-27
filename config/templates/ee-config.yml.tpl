@@ -22,10 +22,12 @@ additional_build_steps:
     - RUN dnf install -y libxml2-devel libxslt-devel libffi-devel
     - RUN dnf install -y openssh-clients sshpass git rsync iputils bind-utils
     - RUN dnf install -y sudo which procps-ng unzip
-    - RUN mkdir -p /usr/local/sapnwrfcsdk /etc/ld.so.conf.d
-    - ENV SAPNWRFC_HOME=/usr/local/sapnwrfcsdk
-    - ENV LD_LIBRARY_PATH=/usr/local/sapnwrfcsdk/lib:$LD_LIBRARY_PATH
-    - ENV PATH=/usr/local/sapnwrfcsdk/bin:$PATH
+    - RUN mkdir -p /usr/local/sap/nwrfcsdk
+    - RUN mkdir -p /etc/ld.so.conf.d
+    - "ENV SAPNWRFC_HOME=/usr/local/sap/nwrfcsdk"
+    - "ENV LD_LIBRARY_PATH=/usr/local/sap/nwrfcsdk/lib:$LD_LIBRARY_PATH"
+    - "ENV PATH=/usr/local/sap/nwrfcsdk/bin:$PATH"
+
 
   append_base:
     - RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel

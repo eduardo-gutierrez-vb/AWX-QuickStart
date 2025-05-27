@@ -210,6 +210,12 @@ calculate_awx_resources() {
     [[ "${web_mem_req%Mi}" -lt 1024 ]] && web_mem_req="1024Mi"
     [[ "${task_cpu_req%m}" -lt 1000 ]] && task_cpu_req="1000m"
     [[ "${task_mem_req%Mi}" -lt 1024 ]] && task_mem_req="1024Mi"
+
+
+    [[ "${web_cpu_lim%m}" -lt 1000 ]] && web_cpu_lim="1000m"
+    [[ "${web_mem_lim%Mi}" -lt 1024 ]] && web_mem_lim="1024Mi"
+    [[ "${task_cpu_lim%m}" -lt 1000 ]] && task_cpu_lim="1000m"
+    [[ "${task_mem_lim%Mi}" -lt 1024 ]] && task_mem_lim="1024Mi"
     
     AWX_RESOURCES[WEB_REPLICAS]="$web_replicas"
     AWX_RESOURCES[TASK_REPLICAS]="$task_replicas"

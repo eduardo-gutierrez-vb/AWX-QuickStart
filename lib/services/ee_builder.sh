@@ -163,9 +163,10 @@ additional_build_steps:
     - RUN dnf install -y sudo which procps-ng unzip
     - RUN mkdir -p /usr/local/sap/nwrfcsdk
     - RUN mkdir -p /etc/ld.so.conf.d
-    - ENV SAPNWRFC_HOME=/usr/local/sap/nwrfcsdk
-    - ENV LD_LIBRARY_PATH=/usr/local/sap/nwrfcsdk/lib:\$LD_LIBRARY_PATH
-    - ENV PATH=/usr/local/sap/nwrfcsdk/bin:\$PATH
+    - "ENV SAPNWRFC_HOME=/usr/local/sap/nwrfcsdk"
+    - "ENV LD_LIBRARY_PATH=/usr/local/sap/nwrfcsdk/lib:$LD_LIBRARY_PATH"
+    - "ENV PATH=/usr/local/sap/nwrfcsdk/bin:$PATH"
+
   
   append_base:
     - RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel

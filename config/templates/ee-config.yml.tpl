@@ -10,7 +10,7 @@ dependencies:
     package_pip: ansible-core>=2.14.0
   ansible_runner:
     package_pip: ansible-runner
-  galaxy: collections.yml  # Sem espaços extras após o nome do arquivo
+  galaxy: collections.yml
   python: requirements.txt
   system: bindep.txt
 
@@ -40,8 +40,8 @@ additional_build_steps:
     - RUN mkdir -p /var/run/receptor /tmp/receptor
     - COPY --from=quay.io/ansible/receptor:v1.5.5 /usr/bin/receptor /usr/bin/receptor
     - RUN chmod +x /usr/bin/receptor
+    
+  append_final:
+    - RUN echo "Build finalizado com sucesso!"
 
-build_arg_defaults:
-  ANSIBLE_CORE_VERSION: ">=2.14.0"
-  ANSIBLE_RUNNER_VERSION: ">=2.3.0"
-  PYTHON_VERSION: "3.9"
+build_arg_defaults: {}

@@ -176,7 +176,7 @@ additional_build_steps:
     - RUN ldconfig
     - RUN dnf clean all && rm -rf /var/cache/dnf
     - RUN python3 -c "import ansible; print('Ansible version:', ansible.__version__)"
-    - RUN python3 -c "try: import pyrfc; print('PyRFC successfully imported') except ImportError as e: print('PyRFC import failed:', e)"
+    - RUN python3 -c "import pyrfc"
     - RUN mkdir -p /var/run/receptor /tmp/receptor
     - COPY --from=quay.io/ansible/receptor:v1.5.5 /usr/bin/receptor /usr/bin/receptor
     - RUN chmod +x /usr/bin/receptor

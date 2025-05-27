@@ -264,7 +264,7 @@ log_demo() {
         sleep 0.1
     done
     
-    log_subheader "Recursos Avançados")
+    log_subheader "Recursos Avançados"
     log_info "📊 Logging JSON: ${LOG_JSON}"
     log_info "🖥️  Syslog: ${LOG_SYSLOG}"
     log_info "🎨 Terminal interativo: ${LOG_INTERACTIVE}"

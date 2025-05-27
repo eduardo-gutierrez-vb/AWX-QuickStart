@@ -31,6 +31,7 @@ additional_build_steps:
 
   append_base:
     - RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel
+    - RUN pip install --no-binary pyrfc pyrfc
     - RUN python3 -m pip install --no-cache-dir pyrfc==3.3.1 || echo "PyRFC installation failed - SAP NW RFC SDK may be required"
     - RUN python3 -m pip install --no-cache-dir azure-cli
     - RUN mkdir -p /opt/ansible/{collections,playbooks,inventories,roles}

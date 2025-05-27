@@ -1,4 +1,5 @@
 #!/bin/bash
+# lib/core/logger_enhanced.sh - Sistema de logging centralizado com UX moderna
 
 # Dependências modernas
 command -v tput >/dev/null 2>&1 && USE_TPUT=true || USE_TPUT=false
